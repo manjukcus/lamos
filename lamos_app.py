@@ -1,1652 +1,496 @@
-{
-  "cells": [
-    {
-      "cell_type": "code",
-      "source": [
-        "# functions\n",
-        "import customtkinter\n",
-        "import matplotlib.patches as mpatches\n",
-        "import tkinter as tk\n",
-        "from tkinter import filedialog, Entry, Label, StringVar, ttk\n",
-        "import numpy as np\n",
-        "import pandas as pd\n",
-        "import geopandas as gpd\n",
-        "import matplotlib.pyplot as plt\n",
-        "from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk\n",
-        "from shapely.geometry import Point, LineString, MultiPoint, box, Polygon\n",
-        "from shapely.ops import polygonize, unary_union, nearest_points, voronoi_diagram\n",
-        "from scipy.spatial import Voronoi\n",
-        "import random\n",
-        "import seaborn as sns\n",
-        "import matplotlib.gridspec as gridspec\n",
-        "from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg\n",
-        "import multiprocessing as mp\n",
-        "import itertools\n",
-        "import seaborn as sns\n",
-        "from astropy.stats import RipleysKEstimator\n",
-        "from scipy import stats\n",
-        "from scipy.stats import ks_2samp\n",
-        "import geopandas as gpd\n",
-        "import pointpats\n",
-        "from pykrige.ok import OrdinaryKriging\n",
-        "\n",
-        "def nanmean_confidence_interval(data, confidence=0.95):\n",
-        "    \"\"\"\n",
-        "    Calculate the mean and 95% confidence interval of a dataset, ignoring NaN values.\n",
-        "    \"\"\"\n",
-        "    cleaned_data = data[~np.isnan(data)]  # Remove NaN values\n",
-        "    n = len(cleaned_data)\n",
-        "    m, se = np.nanmean(cleaned_data), stats.sem(cleaned_data, nan_policy='omit')\n",
-        "    h = se * stats.t.ppf((1 + confidence) / 2., n-1)\n",
-        "    return m, m-h, m+h\n",
-        "\n",
-        "def select_bg():\n",
-        "    global bg_gdf\n",
-        "    bg_gdf = filedialog.askopenfilename(filetypes = ((\"shapefile files\",\"*.shp\"),(\"all files\",\"*.*\\\")))\n",
-        "    if bg_gdf:\n",
-        "        visualize_shapefile1(bg_gdf)\n",
-        "\n",
-        "def select_shapefile():\n",
-        "    global demand_gdf, gdf_convexhull, gdf\n",
-        "    demand_gdf_path = filedialog.askopenfilename(filetypes = ((\"shapefile files\",\"*.shp\"),(\"all files\",\"*.*\\\")))\n",
-        "    if demand_gdf_path:\n",
-        "        demand_gdf = gpd.read_file(demand_gdf_path)\n",
-        "        gdf = demand_gdf # Initialize gdf\n",
-        "        visualize_shapefile2(demand_gdf_path)\n",
-        "        gdf_convexhull = gpd.GeoDataFrame(geometry=[Polygon(gdf.unary_union.convex_hull.buffer(5).exterior)])\n",
-        "        gdf_convexhull.crs = demand_gdf.crs\n",
-        "\n",
-        "def add_parameters():\n",
-        "    global num_fac, demand_buffer_distance, maximum_lambda, threshold_dist, max_iter, iteration, weight_col, temcol1, temcol2, temcol3, temp_sel1, temp_sel2, temp_sel3, temp_sel4, temp_sel5, temp_sel6, attrcol1, attrval1, attrcol2, attrval2, num_vor\n",
-        "    weight_col = weight_col_entry.get()\n",
-        "    num_fac = int(num_fac_entry.get())\n",
-        "    demand_buffer_distance = float(demand_buffer_distance_entry.get())\n",
-        "    maximum_lambda = int(maximum_lambda_entry.get())\n",
-        "    threshold_dist = float(threshold_dist_entry.get())\n",
-        "    max_iter = int(max_iter_entry.get())\n",
-        "    iteration = int(iteration_entry.get())\n",
-        "    num_vor = int(vor_entry.get())\n",
-        "    temcol1 = temp1_col_entry.get()\n",
-        "    temcol2 = temp2_col_entry.get()\n",
-        "    temcol3 = temp3_col_entry.get()\n",
-        "    temp_sel1= None\n",
-        "    temp_sel2= None\n",
-        "    temp_sel3= None\n",
-        "    temp_sel4= None\n",
-        "    temp_sel5= None\n",
-        "    temp_sel6= None\n",
-        "    attrcol1 = add1_col_entry.get()\n",
-        "    attrval1 = add1_val_entry.get()\n",
-        "    if attrcol1 and attrval1 and attrcol1 in gdf.columns: # Check if gdf and column exist\n",
-        "        attrval1 = type(gdf[attrcol1].iloc[0])(attrval1)\n",
-        "    attrcol2 = add2_col_entry.get()\n",
-        "    attrval2 = add2_val_entry.get()\n",
-        "    if attrcol2 and attrval2 and attrcol2 in gdf.columns: # Check if gdf and column exist\n",
-        "        attrval2 = type(gdf[attrcol2].iloc[0])(attrval2)\n",
-        "\n",
-        "def filter_file(gdf_in, attrcol1=None, attrval1=None, attrcol2=None, attrval2=None):#, sample_n=20):\n",
-        "    #global gdf\n",
-        "\n",
-        "    # Create a dictionary with column-value pairs\n",
-        "    conditions = {attrcol1: attrval1, attrcol2: attrval2}\n",
-        "\n",
-        "    # Remove None values\n",
-        "    conditions = {k: v for k, v in conditions.items() if k is not None and v is not None}\n",
-        "\n",
-        "    # Apply conditions\n",
-        "    gdf_new = gdf_in\n",
-        "\n",
-        "    for col, val in conditions.items():\n",
-        "        if col in gdf_new.columns:\n",
-        "            gdf_new = gdf_new[gdf_new[col] == val]\n",
-        "\n",
-        "    gdf = gdf_new#.sample(n=sample_n)#, replace=False)\n",
-        "    return(gdf)\n",
-        "\n",
-        "def save_shapefile():\n",
-        "    global non_result_gdf_tot\n",
-        "    filename = filedialog.asksaveasfilename(defaultextension=\".shp\")\n",
-        "    if filename:\n",
-        "        # Check for columns before dropping\n",
-        "        cols_to_drop = ['nearest_point', 'poly_geometry']\n",
-        "        cols_exist = [col for col in cols_to_drop if col in non_result_gdf_tot.columns]\n",
-        "        non_result_gdf_tot_to_save = non_result_gdf_tot.drop(columns=cols_exist)\n",
-        "        non_result_gdf_tot_to_save.to_file(filename)\n",
-        "\n",
-        "\n",
-        "def update_tree_columns():\n",
-        "    if 'gdf' in globals() and gdf is not None:\n",
-        "        tree[\"columns\"] = list(gdf.columns)\n",
-        "        for col in gdf.columns:\n",
-        "            tree.heading(col, text=col)\n",
-        "            tree.column(col, width=100)\n",
-        "fig, ax = None, None\n",
-        "\n",
-        "def visualize_shapefile1(filename=None):\n",
-        "    global bg_gdf, ax, canvas, tree, fig\n",
-        "    if filename is not None:\n",
-        "        bg_gdf = gpd.read_file(filename)\n",
-        "\n",
-        "        # Create the main figure and canvas\n",
-        "        fig, ax = plt.subplots(figsize = (10,4))\n",
-        "        bg_gdf.plot(ax = ax, color='none', edgecolor='black')\n",
-        "\n",
-        "        # Create the main figure and canvas\n",
-        "        fig.subplots_adjust(top=1)\n",
-        "        if canvas:\n",
-        "            canvas.get_tk_widget().destroy()\n",
-        "        canvas = FigureCanvasTkAgg(fig, master=root)\n",
-        "        canvas.draw()\n",
-        "        canvas.get_tk_widget().grid(row=6, column=0, columnspan=4, rowspan=4, sticky='nsew')\n",
-        "\n",
-        "        # Create a Frame for the Treeview widget\n",
-        "        frame = tk.Frame(root)\n",
-        "        frame.grid(row=11, column=0, columnspan=4, rowspan = 4, sticky='nsew')\n",
-        "\n",
-        "        # Create a Treeview widget\n",
-        "        tree = ttk.Treeview(frame, selectmode=\"browse\", xscrollcommand=lambda x: tree.xview(x))  # Add xscrollcommand to allow horizontal scrolling\n",
-        "        tree[\"show\"] = \"headings\"\n",
-        "\n",
-        "        if 'gdf' in globals() and gdf is not None:\n",
-        "            update_tree_columns()  # Initial tree setup\n",
-        "\n",
-        "            # Add data to the Treeview widget\n",
-        "            for index, row in gdf.iterrows():\n",
-        "                tree.insert(\"\", \"end\", values=list(row))\n",
-        "\n",
-        "        # Add the Treeview widget to the window\n",
-        "        tree.place(relheight=1, relwidth=1)\n",
-        "\n",
-        "        hsb = ttk.Scrollbar(frame, orient=\"horizontal\", command=tree.xview)\n",
-        "        hsb.place(relx=0, rely=1, relwidth=1, anchor='sw')  # Use the place method to control the position of the scrollbar\n",
-        "        tree.configure(xscrollcommand=hsb.set)\n",
-        "\n",
-        "        def on_select(event):\n",
-        "            if 'gdf' not in globals() or gdf is None:\n",
-        "                return\n",
-        "            selected_item = tree.selection()[0]  # Get the selected item\n",
-        "            values = tree.item(selected_item)[\"values\"]  # Get the values of the selected item\n",
-        "            for i, value in enumerate(values):\n",
-        "                gdf.iloc[int(selected_item), i] = value  # Update the corresponding row in the GeoDataFrame\n",
-        "\n",
-        "        tree.bind(\"<<TreeviewSelect>>\", on_select)\n",
-        "\n",
-        "def visualize_shapefile2(filename):\n",
-        "    global gdf, ax, canvas, tree, fig\n",
-        "    gdf = gpd.read_file(filename)\n",
-        "\n",
-        "    # Create the main figure and canvas if they don't exist\n",
-        "    if fig is None or ax is None:\n",
-        "        fig, ax = plt.subplots(figsize = (10,4))\n",
-        "    gdf.plot(ax=ax, color = \"black\", alpha = 0.5)\n",
-        "    num_points1 = len(gdf)\n",
-        "    ax.text(0.97, 0.95, f'Number of points: {num_points1}',\n",
-        "        verticalalignment='top', horizontalalignment='right',\n",
-        "        transform=ax.transAxes, color='black', fontsize=10,\n",
-        "        bbox=dict(facecolor='white', alpha=0.5, edgecolor='none'))\n",
-        "\n",
-        "    fig.subplots_adjust(top=1)\n",
-        "    if canvas:\n",
-        "        canvas.get_tk_widget().destroy()\n",
-        "    canvas = FigureCanvasTkAgg(fig, master=root)\n",
-        "    canvas.draw()\n",
-        "    canvas.get_tk_widget().grid(row=6, column=0, columnspan=4, rowspan=4, sticky='nsew')\n",
-        "\n",
-        "    # Create a Frame for the Treeview widget\n",
-        "    frame = tk.Frame(root)\n",
-        "    frame.grid(row=11, column=0, columnspan=4, rowspan = 4, sticky='nsew')\n",
-        "\n",
-        "    # Create a Treeview widget\n",
-        "    tree = ttk.Treeview(frame, selectmode=\"browse\", xscrollcommand=lambda x: tree.xview(x))  # Add xscrollcommand to allow horizontal scrolling\n",
-        "    tree[\"show\"] = \"headings\"\n",
-        "    update_tree_columns()  # Initial tree setup\n",
-        "\n",
-        "    # Add data to the Treeview widget\n",
-        "    for index, row in gdf.iterrows():\n",
-        "        tree.insert(\"\", \"end\", values=list(row))\n",
-        "\n",
-        "    # Add the Treeview widget to the window\n",
-        "    tree.place(relheight=1, relwidth=1)\n",
-        "\n",
-        "    hsb = ttk.Scrollbar(frame, orient=\"horizontal\", command=tree.xview)\n",
-        "    hsb.place(relx=0, rely=1, relwidth=1, anchor='sw')  # Use the place method to control the position of the scrollbar\n",
-        "    tree.configure(xscrollcommand=hsb.set)\n",
-        "\n",
-        "    def on_select(event):\n",
-        "        selected_item = tree.selection()[0]  # Get the selected item\n",
-        "        values = tree.item(selected_item)[\"values\"]  # Get the values of the selected item\n",
-        "        for i, value in enumerate(values):\n",
-        "            gdf.iloc[int(selected_item), i] = value  # Update the corresponding row in the GeoDataFrame\n",
-        "\n",
-        "    tree.bind(\"<<TreeviewSelect>>\", on_select)\n",
-        "\n",
-        "\n",
-        "def visualize_gdf():\n",
-        "    global gdf_filtered, canvas\n",
-        "    if 'gdf' not in globals() or gdf is None:\n",
-        "        print(\"GDF not loaded\")\n",
-        "        return\n",
-        "\n",
-        "    plt.clf()\n",
-        "    # Filter the gdf\n",
-        "    conditions = [\n",
-        "        (temcol1, temp_sel1, temp_sel2),\n",
-        "        (temcol2, temp_sel3, temp_sel4),\n",
-        "        (temcol3, temp_sel5, temp_sel6)\n",
-        "    ]\n",
-        "    gdf_filtered = gdf\n",
-        "    for col, min_val, max_val in conditions:\n",
-        "        if col in gdf.columns:\n",
-        "            if min_val is not None:\n",
-        "                gdf_filtered = gdf_filtered[gdf_filtered[col]>=min_val]\n",
-        "            if max_val is not None:\n",
-        "                gdf_filtered = gdf_filtered[gdf_filtered[col]<=max_val]\n",
-        "\n",
-        "    conditions = [\n",
-        "        (attrcol1, attrval1),\n",
-        "        (attrcol2, attrval2)\n",
-        "    ]\n",
-        "\n",
-        "    for col, val in conditions:\n",
-        "        if col in gdf.columns:\n",
-        "            if val is not None:\n",
-        "                gdf_filtered = gdf_filtered[gdf_filtered[col] == val]\n",
-        "\n",
-        "    # Perform Kriging\n",
-        "    #OK = OrdinaryKriging(gdf_filtered.geometry.x, gdf_filtered.geometry.y, gdf_filtered[weight_col], variogram_model='gaussian')\n",
-        "    #x = np.linspace(min(gdf.geometry.x), max(gdf.geometry.x), 100)\n",
-        "    #y = np.linspace(min(gdf.geometry.y), max(gdf.geometry.y), 100)\n",
-        "    #z, ss = OK.execute('grid', x, y)\n",
-        "\n",
-        "    # Create the main figure and canvas\n",
-        "    if fig is None or ax is None:\n",
-        "        fig, ax = plt.subplots(figsize=(10, 4))\n",
-        "    else:\n",
-        "        ax.clear() # Clear existing plot\n",
-        "\n",
-        "    # Plot Kriging results\n",
-        "    #ax.imshow(z, origin='lower', aspect='auto',\n",
-        "    #          extent=[min(gdf.geometry.x), max(gdf.geometry.x), min(gdf.geometry.y), max(gdf.geometry.y)], alpha=0.5)\n",
-        "\n",
-        "    if 'bg_gdf' in globals() and bg_gdf is not None:\n",
-        "        bg_gdf.plot(ax = ax, color='none', edgecolor='black')\n",
-        "\n",
-        "    # Plot points\n",
-        "    gdf_filtered.plot(ax=ax, color='cornflowerblue', alpha=0.5)\n",
-        "    num_points2 = len(gdf_filtered)\n",
-        "\n",
-        "# Add text to the top right of the plot\n",
-        "    ax.text(0.97, 0.95, f'Number of points: {num_points2}',\n",
-        "            verticalalignment='top', horizontalalignment='right',\n",
-        "            transform=ax.transAxes, color='blue', fontsize=10)\n",
-        "    # Update the canvas\n",
-        "    if canvas:\n",
-        "        canvas.figure = fig\n",
-        "        canvas.draw()\n",
-        "        canvas.get_tk_widget().grid(row=6, column=0, columnspan=4, rowspan=4, sticky='nsew')\n",
-        "\n",
-        "    # plt.show() # This might open a separate window, canvas.draw() is usually enough for tkinter\n",
-        "\n",
-        "#intersecting the polygon after generating the buffer area\n",
-        "def create_intersected_areas(gdf, buffer_distance):\n",
-        "    gdf_copy = gdf.copy()  # Create a copy of gdf to avoid modifying the original DataFrame\n",
-        "    gdf_copy['geometry'] = gdf_copy['geometry'].apply(Point)\n",
-        "    gdf_copy['geometry'] = gdf_copy['geometry'].buffer(buffer_distance)\n",
-        "    unioned_polygon = unary_union(gdf_copy.geometry)\n",
-        "    unioned_gdf = gpd.GeoDataFrame(geometry=[unioned_polygon])\n",
-        "\n",
-        "    #intersected_areas = gpd.overlay(unioned_gdf, gdf_copy, how='intersection')\n",
-        "\n",
-        "    #return intersected_areas\n",
-        "\n",
-        "    lines = gdf_copy.boundary\n",
-        "\n",
-        "    lines_gdf = gpd.GeoDataFrame(geometry=lines)\n",
-        "\n",
-        "    unioned_linestring = unary_union(lines_gdf.geometry)\n",
-        "\n",
-        "    unioned_lines_gdf = gpd.GeoDataFrame(geometry=[unioned_linestring])\n",
-        "\n",
-        "    combined_lines = unary_union([unioned_polygon.boundary, unioned_linestring])\n",
-        "\n",
-        "    cut_polygons = list(polygonize(combined_lines))\n",
-        "\n",
-        "    cut_region_gdf = gpd.GeoDataFrame(geometry=cut_polygons, crs = gdf.crs)\n",
-        "    cut_region_gdf['index_id'] = range(len(cut_region_gdf))\n",
-        "    return cut_region_gdf\n",
-        "\n",
-        "#generating the random points on the polygon area\n",
-        "def generate_random(number, polygon):\n",
-        "    polygon_geom = unary_union(polygon.geometry) # Get the geometry\n",
-        "    points = []\n",
-        "    minx, miny, maxx, maxy = polygon_geom.bounds\n",
-        "    while len(points) < number:\n",
-        "        pnt = Point(np.random.uniform(minx, maxx), np.random.uniform(miny, maxy))\n",
-        "        if polygon_geom.contains(pnt):\n",
-        "            points.append(pnt)\n",
-        "\n",
-        "    # Use the crs from the input polygon GeoDataFrame\n",
-        "    gdf_out = gpd.GeoDataFrame(geometry=points, crs=polygon.crs)\n",
-        "    gdf_out['index_id'] = range(len(gdf_out))\n",
-        "    return gdf_out\n",
-        "\n",
-        "\n",
-        "#allocating the demand points to the centers\n",
-        "def find_nearest(source_gdf, target_gdf):\n",
-        "    nearest_ids = []  # Create a list to store the nearest ids\n",
-        "    nearest_points_list = []\n",
-        "    nearest_distances = []\n",
-        "\n",
-        "    for i, row in source_gdf.iterrows():\n",
-        "        source_point = row.geometry\n",
-        "        distances = target_gdf.distance(source_point)\n",
-        "        min_idx = distances.idxmin()\n",
-        "        min_distance = distances.min()\n",
-        "        nearest_ids.append(target_gdf.loc[min_idx, 'index_id'])\n",
-        "        nearest_points_list.append(target_gdf.loc[min_idx].geometry)\n",
-        "        nearest_distances.append(min_distance)\n",
-        "\n",
-        "    source_gdf_out = source_gdf.copy()\n",
-        "    source_gdf_out['nearest_id'] = nearest_ids\n",
-        "    source_gdf_out['nearest_point'] = nearest_points_list\n",
-        "    source_gdf_out['distance'] = nearest_distances\n",
-        "\n",
-        "    return source_gdf_out\n",
-        "\n",
-        "#calculating the coverage and access of points\n",
-        "def calculate_sum_per_row(allocated_demand_gdf, allocated_face_point_gdf):\n",
-        "    sum_weight_list = []  # Create a list to store the sum of 'ExpectedVa' for each row\n",
-        "    sum_distance_list = []  # Create a list to store the sum of distances for each row\n",
-        "    sum_weighted_distance_list = []  # Create a list to store the sum of weighted distances for each row\n",
-        "\n",
-        "    allocated_face_point_gdf_out = allocated_face_point_gdf.copy()\n",
-        "\n",
-        "    for i, row in allocated_face_point_gdf_out.iterrows():\n",
-        "        distances = allocated_demand_gdf.geometry.apply(lambda x: row.geometry.distance(x))\n",
-        "        #scrollbar1_label = Label(root, text=\"From: \", font=font)\n",
-        "        #scrollbar1_label.grid(row=2, column=5, sticky='nsew')\n",
-        "\n",
-        "        filtered_gdf_in = allocated_demand_gdf[(distances <= demand_buffer_distance+0.01) & (allocated_demand_gdf['nearest_id'] == row['nearest_id'])]\n",
-        "        filtered_gdf_all = allocated_demand_gdf[(allocated_demand_gdf['nearest_id'] == row['nearest_id'])]\n",
-        "\n",
-        "        sum_weight = filtered_gdf_in[weight_col].sum()\n",
-        "        sum_distance = distances[filtered_gdf_all.index].sum()  # Calculate the sum of distances for the filtered rows\n",
-        "        sum_weighted_distance = (distances[filtered_gdf_all.index] * filtered_gdf_all[weight_col]).sum()  # Calculate the sum of weighted distances for the filtered rows\n",
-        "\n",
-        "        sum_weight_list.append(sum_weight)\n",
-        "        sum_distance_list.append(sum_distance)\n",
-        "        sum_weighted_distance_list.append(sum_weighted_distance)\n",
-        "\n",
-        "    allocated_face_point_gdf_out['sum_weight'] = sum_weight_list\n",
-        "    allocated_face_point_gdf_out['sum_distance'] = sum_distance_list  # Add the list of sums of distances as a new column in allocated_face_point_gdf\n",
-        "    allocated_face_point_gdf_out['sum_weighted_distance'] = sum_weighted_distance_list  # Add the list of sums of weighted distances as a new column in allocated_face_point_gdf\n",
-        "\n",
-        "    return allocated_face_point_gdf_out\n",
-        "\n",
-        "#deriving the weber point\n",
-        "def weber(gdf, uniq_id):\n",
-        "    # Create an empty DataFrame to store the results\n",
-        "    result_gdf = gpd.GeoDataFrame()\n",
-        "\n",
-        "    # Calculate the weighted center for each unique 'nearest_id' value\n",
-        "    for nearest_id in gdf[uniq_id].unique():\n",
-        "        # Filter the rows with the current 'nearest_id' value\n",
-        "        filtered_gdf = gdf[gdf[uniq_id] == nearest_id]\n",
-        "\n",
-        "        # Calculate the weighted sums of the x and y coordinates\n",
-        "        weighted_sum_x = (filtered_gdf.geometry.x * filtered_gdf[weight_col]).sum()\n",
-        "        weighted_sum_y = (filtered_gdf.geometry.y * filtered_gdf[weight_col]).sum()\n",
-        "\n",
-        "        # Calculate the total sum of the weights\n",
-        "        total_weight = filtered_gdf[weight_col].sum()\n",
-        "\n",
-        "        # Calculate the weighted center coordinates\n",
-        "        center_x = weighted_sum_x / (total_weight+0.001)\n",
-        "        center_y = weighted_sum_y / (total_weight+0.001)\n",
-        "\n",
-        "        # Create a new DataFrame with the results for the current 'nearest_id' value\n",
-        "        result_row = gpd.GeoDataFrame({'index_id': [nearest_id], 'center_x': [center_x], 'center_y': [center_y]}, geometry=gpd.points_from_xy([center_x], [center_y]),\n",
-        "                                     crs = gdf.crs)\n",
-        "\n",
-        "        # Append the results to the result DataFrame\n",
-        "        result_gdf = pd.concat([result_gdf, result_row])\n",
-        "\n",
-        "    return result_gdf\n",
-        "\n",
-        "#finding polygon's nearest point to the weber point\n",
-        "def find_nearest2(face_poly_gdf, solution_weber):\n",
-        "    # Create an empty list to store the results\n",
-        "    nearest_points_list = []\n",
-        "\n",
-        "    # Iterate over each polygon\n",
-        "    for poly in face_poly_gdf.geometry:\n",
-        "        # Initialize the minimum distance to a large number\n",
-        "        min_dist = float('inf')\n",
-        "        nearest_pt = None\n",
-        "\n",
-        "        # Iterate over each point\n",
-        "        for pt in solution_weber.geometry:\n",
-        "            # Find the nearest point on the polygon to the current point\n",
-        "            nearest = nearest_points(poly, pt)[0]\n",
-        "\n",
-        "            # Calculate the distance between the point and the nearest point on the polygon\n",
-        "            dist = pt.distance(nearest)\n",
-        "\n",
-        "            # If this distance is less than the current minimum distance, update the minimum distance and the nearest point\n",
-        "            if dist < min_dist:\n",
-        "                min_dist = dist\n",
-        "                nearest_pt = nearest\n",
-        "\n",
-        "        # Add the nearest point and the original polygon to the results list\n",
-        "        nearest_points_list.append((nearest_pt, poly))\n",
-        "\n",
-        "    # Convert the list to a GeoDataFrame\n",
-        "    nearest_points_gdf = gpd.GeoDataFrame(nearest_points_list, columns=['nearest_point', 'poly_geometry'], geometry='nearest_point',\n",
-        "                                          crs = face_poly_gdf.crs)\n",
-        "\n",
-        "    nearest_points_gdf['x'] = nearest_points_gdf['nearest_point'].x\n",
-        "    nearest_points_gdf['y'] = nearest_points_gdf['nearest_point'].y\n",
-        "\n",
-        "    # Create a new 'geometry' column from the x and y coordinates\n",
-        "    nearest_points_gdf['geometry'] = gpd.points_from_xy(nearest_points_gdf['x'], nearest_points_gdf['y'])\n",
-        "\n",
-        "    return nearest_points_gdf\n",
-        "\n",
-        "#sorting for the solution\n",
-        "def find_non_dominated_solutions(gdf):\n",
-        "    #global result_gdf\n",
-        "    # Initialize an empty dataframe to store the non-dominated solutions\n",
-        "    non_dominated_gdf = pd.DataFrame()\n",
-        "\n",
-        "    # Iterate over each unique 'nearest_id'\n",
-        "    for nearest_id in gdf['nearest_id'].unique():\n",
-        "        temp_gdf = gdf[gdf['nearest_id'] == nearest_id]\n",
-        "\n",
-        "        # Sort the temporary dataframe by 'sum_weight' (descending) and 'sum_weighted_distance' (ascending)\n",
-        "        temp_gdf_sorted = temp_gdf.sort_values(by=['sum_weight', 'sum_weighted_distance'], ascending=[False, True])\n",
-        "\n",
-        "        # Initialize the current maximum 'sum_weight' and minimum 'sum_weighted_distance'\n",
-        "        min_sum_weighted_distance = temp_gdf_sorted.iloc[0]['sum_weighted_distance']\n",
-        "\n",
-        "        # Add the first row (which is non-dominated by definition) to the non-dominated solutions dataframe\n",
-        "        non_dominated_gdf = pd.concat([non_dominated_gdf, temp_gdf_sorted.iloc[[0]]])\n",
-        "\n",
-        "        # Iterate over the rest of the rows\n",
-        "        for i in range(1, len(temp_gdf_sorted)):\n",
-        "            row = temp_gdf_sorted.iloc[i]\n",
-        "\n",
-        "            # If the current row is non-dominated, update the current maximum 'sum_weight' and minimum 'sum_weighted_distance', and add the row to the non-dominated solutions dataframe\n",
-        "            if row['sum_weighted_distance'] <= min_sum_weighted_distance:\n",
-        "                min_sum_weighted_distance = row['sum_weighted_distance']\n",
-        "                non_dominated_gdf = pd.concat([non_dominated_gdf, temp_gdf_sorted.iloc[[i]]])\n",
-        "\n",
-        "    return non_dominated_gdf\n",
-        "\n",
-        "#filtering out the gdf using quantile\n",
-        "def generate_gdf(gdf, quantile):\n",
-        "    # Define quantile value\n",
-        "    q = quantile / (maximum_lambda-1) if maximum_lambda > 1 else 0\n",
-        "\n",
-        "    if q == 0:\n",
-        "        # If quantile is 0, select the row with the smallest 'sum_weight' for each 'nearest_id'\n",
-        "        idx = gdf.groupby('nearest_id')['sum_weight'].idxmin()\n",
-        "    else:\n",
-        "        # If quantile is not 0 (e.g., 1 if maximum_lambda is 2), select the row with the largest 'sum_weight' for each 'nearest_id'\n",
-        "        idx = gdf.groupby('nearest_id')['sum_weight'].idxmax()\n",
-        "\n",
-        "    # Use the indices to select the corresponding rows from the dataframe\n",
-        "    new_gdf = gdf.loc[idx]\n",
-        "\n",
-        "    return new_gdf\n",
-        "\n",
-        "#calculating the values of the results\n",
-        "def calculate_values(demand_gdf, gdf):\n",
-        "    # Create an empty DataFrame to hold the results\n",
-        "    result_df = pd.DataFrame(columns=['uniq_ind', 'sum_expected_va', 'weighted_distance'])\n",
-        "\n",
-        "    demand_gdf_copy = demand_gdf.copy()\n",
-        "\n",
-        "    # For each unique 'uniq_ind' in result_gdf\n",
-        "    for uniq_ind in gdf['uniq_ind'].unique():\n",
-        "        # Select the rows with the current 'uniq_ind'\n",
-        "        result_subset = gdf[gdf['uniq_ind'] == uniq_ind]\n",
-        "\n",
-        "        # Calculate the distance from each point in demand_gdf to the nearest point in result_subset\n",
-        "        demand_gdf_copy['distance'] = demand_gdf_copy.geometry.apply(lambda x: result_subset.distance(x).min())\n",
-        "\n",
-        "        # Filter the rows in demand_gdf where the distance is less than 30\n",
-        "        close_points = demand_gdf_copy[demand_gdf_copy['distance'] < demand_buffer_distance].copy()\n",
-        "\n",
-        "        # Calculate the sum of ExpectedVa for these points\n",
-        "        sum_expected_va = close_points[weight_col].sum()\n",
-        "\n",
-        "        # Calculate the shortest distance to result_subset multiplied by ExpectedVa\n",
-        "        weighted_distance = (demand_gdf_copy['distance'] * demand_gdf_copy[weight_col]).sum()\n",
-        "\n",
-        "        # Append the results to result_df\n",
-        "        new_row = pd.DataFrame({'uniq_ind': [uniq_ind], 'sum_expected_va': [sum_expected_va], 'weighted_distance': [weighted_distance]})\n",
-        "        result_df = pd.concat([result_df, new_row], ignore_index=True)\n",
-        "\n",
-        "    result_df['covered_per'] = 100*result_df[\"sum_expected_va\"] / (demand_gdf_copy[weight_col].sum() + 0.001)\n",
-        "    result_df['mean_dist'] = result_df[\"weighted_distance\"] / (demand_gdf_copy[weight_col].sum() + 0.001)\n",
-        "\n",
-        "    return result_df\n",
-        "\n",
-        "# non-dominated solutions\n",
-        "def non_dominated_solutions(gdf):\n",
-        "    # Initialize an empty dataframe to store the non-dominated solutions\n",
-        "    non_dominated_gdf = pd.DataFrame()\n",
-        "\n",
-        "    # Sort the temporary dataframe by 'sum_weight' (descending) and 'sum_weighted_distance' (ascending)\n",
-        "    gdf_sorted = gdf.sort_values(by=['sum_expected_va', 'weighted_distance'], ascending=[False, True])\n",
-        "\n",
-        "    if gdf_sorted.empty:\n",
-        "        return non_dominated_gdf\n",
-        "\n",
-        "    # Initialize the current maximum 'sum_weight' and minimum 'sum_weighted_distance'\n",
-        "    min_sum_weighted_distance = gdf_sorted.iloc[0]['weighted_distance']\n",
-        "\n",
-        "    # Add the first row (which is non-dominated by definition) to the non-dominated solutions dataframe\n",
-        "    non_dominated_gdf = pd.concat([non_dominated_gdf, gdf_sorted.iloc[[0]]])\n",
-        "\n",
-        "    # Iterate over the rest of the rows\n",
-        "    for i in range(1, len(gdf_sorted)):\n",
-        "        row = gdf_sorted.iloc[i]\n",
-        "\n",
-        "        # If the current row is non-dominated, update the current maximum 'sum_weight' and minimum 'sum_weighted_distance', and add the row to the non-dominated solutions dataframe\n",
-        "        if row['weighted_distance'] < min_sum_weighted_distance:\n",
-        "            min_sum_weighted_distance = row['weighted_distance']\n",
-        "            non_dominated_gdf = pd.concat([non_dominated_gdf, gdf_sorted.iloc[[i]]])\n",
-        "\n",
-        "    return non_dominated_gdf\n",
-        "\n",
-        "#index of calculation\n",
-        "def calculate_mean_distance(gdf1, gdf2):\n",
-        "    # Ensure the GeoDataFrames are indexed by 'nearest_id'\n",
-        "    gdf1_indexed = gdf1.set_index('nearest_id')\n",
-        "    gdf2_indexed = gdf2.set_index('nearest_id')\n",
-        "\n",
-        "    # Align gdf2 to gdf1's index\n",
-        "    gdf2_aligned = gdf2_indexed.reindex(gdf1_indexed.index)\n",
-        "\n",
-        "    # Drop rows where alignment failed (NaN geometries)\n",
-        "    valid_indices = gdf2_aligned.geometry.notna()\n",
-        "    gdf1_aligned = gdf1_indexed[valid_indices]\n",
-        "    gdf2_aligned = gdf2_aligned[valid_indices]\n",
-        "\n",
-        "    if gdf1_aligned.empty or gdf2_aligned.empty:\n",
-        "        return float('inf') # Return a large number if no common indices\n",
-        "\n",
-        "    # Calculate the distance between corresponding points\n",
-        "    distances = gdf1_aligned.distance(gdf2_aligned)\n",
-        "\n",
-        "    # Return the mean distance\n",
-        "    return distances.mean()\n",
-        "\n",
-        "def non_dom_coords(gdf, result_gdf):\n",
-        "    result_gdf2 = calculate_values(gdf, result_gdf)\n",
-        "    result_gdf2_sorted = result_gdf2.sort_values(by=['sum_expected_va', 'weighted_distance'], ascending=[False, True])\n",
-        "\n",
-        "    if result_gdf2_sorted.empty:\n",
-        "        return gpd.GeoDataFrame(geometry=[]) # Return empty GeoDataFrame\n",
-        "\n",
-        "    min_sum_weighted_distance = result_gdf2_sorted.iloc[0]['weighted_distance']\n",
-        "    uniq_id_list = [result_gdf2_sorted.iloc[0]['uniq_ind']] # Add the first one\n",
-        "\n",
-        "    for i in range(1, len(result_gdf2_sorted)):\n",
-        "        row = result_gdf2_sorted.iloc[i]\n",
-        "        if row['weighted_distance'] <= min_sum_weighted_distance:\n",
-        "            min_sum_weighted_distance = row['weighted_distance']\n",
-        "            uniq_id_list.append(row['uniq_ind'])\n",
-        "\n",
-        "    result_gdf3 = result_gdf[result_gdf['uniq_ind'].isin(uniq_id_list)]\n",
-        "    return(result_gdf3)\n",
-        "\n",
-        "def analysis(demand_gdf):\n",
-        "    #global result_gdf\n",
-        "    result_gdf = gpd.GeoDataFrame(geometry=gpd.GeoSeries(dtype=Point))\n",
-        "    result_gdf.crs = demand_gdf.crs\n",
-        "\n",
-        "    #intersection\n",
-        "    face_poly_gdf = create_intersected_areas(demand_gdf, demand_buffer_distance)\n",
-        "\n",
-        "    uniq_ind = 0\n",
-        "\n",
-        "    for k in range(0,iteration):\n",
-        "        #generate random initial points\n",
-        "        solution_prev = demand_gdf.sample(n=num_fac)\n",
-        "        solution_prev['index_id'] = range(len(solution_prev))\n",
-        "        solution_prev['nearest_id'] = range(len(solution_prev))\n",
-        "\n",
-        "        for quant in range(0, maximum_lambda):\n",
-        "            for i in range(0,max_iter):\n",
-        "            #allocate demands and fac points\n",
-        "                alloc_demand_gdf = find_nearest(demand_gdf, solution_prev)\n",
-        "                solution_weber = weber(alloc_demand_gdf, \"nearest_id\")\n",
-        "                alloc_face_point_gdf = find_nearest2(face_poly_gdf, solution_weber)\n",
-        "                alloc_face_point_gdf = find_nearest(alloc_face_point_gdf, solution_prev)\n",
-        "                alloc_face_point_gdf.geometry = alloc_face_point_gdf['geometry']\n",
-        "\n",
-        "            #assess the solution\n",
-        "                alloc_face_point_gdf = calculate_sum_per_row(demand_gdf, alloc_face_point_gdf)\n",
-        "\n",
-        "            #find non-dominated solutions\n",
-        "                non_face_point_gdf = find_non_dominated_solutions(alloc_face_point_gdf)\n",
-        "\n",
-        "                if non_face_point_gdf.empty:\n",
-        "                    break # Break inner loop if no non-dominated solutions\n",
-        "\n",
-        "            #quantile based solution search\n",
-        "                solution_next = generate_gdf(non_face_point_gdf, quant)\n",
-        "                solution_next['index_id'] = range(len(solution_next))\n",
-        "\n",
-        "                if calculate_mean_distance(solution_prev, solution_next) < threshold_dist:\n",
-        "                    solution_next['uniq_ind'] = uniq_ind\n",
-        "                    uniq_ind = uniq_ind + 1\n",
-        "                    result_gdf = pd.concat([result_gdf, solution_next])\n",
-        "                    break\n",
-        "                else:\n",
-        "                    solution_prev = solution_next\n",
-        "\n",
-        "            if non_face_point_gdf.empty:\n",
-        "                break # Break outer loop\n",
-        "\n",
-        "    result_gdf_non_dom = non_dom_coords(demand_gdf, result_gdf)\n",
-        "    #result_gdf = result_gdf[result_gdf['uniq_ind'] > 0]\n",
-        "    return(result_gdf_non_dom)\n",
-        "\n",
-        "def plot_graph(df, demand_gdf, result_gdf):\n",
-        "    global canvas  # Declare 'canvas' as global at the beginning of the function\n",
-        "\n",
-        "    # Create a new subplot for the graph\n",
-        "    fig, ax = plt.subplots(1, 2, figsize=(20, 10))  # Create a figure with 1 row and 2 columns\n",
-        "\n",
-        "    # First subplot for the map\n",
-        "    if 'bg_gdf' in globals() and bg_gdf is not None:\n",
-        "        bg_gdf.plot(ax = ax[0], color='none', edgecolor='black')\n",
-        "    demand_gdf.plot(ax=ax[0], color='black', label='Demand')\n",
-        "    result_gdf.plot(ax=ax[0], color='red', marker='*', label='Solutions')\n",
-        "    ax[0].set_title('Map')\n",
-        "    ax[0].legend()\n",
-        "    ax[0].grid(True)\n",
-        "\n",
-        "    # Second subplot for the plot\n",
-        "    ax[1].plot(df['covered_per'], df['mean_dist'], 'o', markersize = 10)\n",
-        "    ax[1].set_xlabel('Coverage (%)')\n",
-        "    ax[1].set_ylabel('Mean distance (ft.)')\n",
-        "    ax[1].set_title('Trade-off Solutions')\n",
-        "    ax[1].grid(True)\n",
-        "\n",
-        "    # If a canvas already exists, destroy it\n",
-        "    if canvas:\n",
-        "        canvas.get_tk_widget().destroy()\n",
-        "\n",
-        "    # Create a new canvas widget and add the plot to it\n",
-        "    canvas = FigureCanvasTkAgg(fig, master=root)\n",
-        "    canvas.draw()\n",
-        "    canvas.get_tk_widget().grid(row=6, column=0, columnspan=4, rowspan=4, sticky='nsew') # Changed row from 5 to 6\n",
-        "\n",
-        "\n",
-        "def update_value1(val):\n",
-        "    global temp_sel1\n",
-        "    scrollbar_value1 = tk.StringVar()\n",
-        "    scrollbar_value1.set(val)\n",
-        "    temp_sel1 = float(scrollbar_value1.get())\n",
-        "\n",
-        "def update_value2(val):\n",
-        "    global temp_sel2\n",
-        "    scrollbar_value2 = tk.StringVar()\n",
-        "    scrollbar_value2.set(val)\n",
-        "    temp_sel2 = float(scrollbar_value2.get())\n",
-        "\n",
-        "def update_value3(val):\n",
-        "    global temp_sel3\n",
-        "    scrollbar_value3 = tk.StringVar()\n",
-        "    scrollbar_value3.set(val)\n",
-        "    temp_sel3 = float(scrollbar_value3.get())\n",
-        "\n",
-        "def update_value4(val):\n",
-        "    global temp_sel4\n",
-        "    scrollbar_value4 = tk.StringVar()\n",
-        "    scrollbar_value4.set(val)\n",
-        "    temp_sel4 = float(scrollbar_value4.get())\n",
-        "\n",
-        "def update_value5(val):\n",
-        "    global temp_sel5\n",
-        "    scrollbar_value5 = tk.StringVar()\n",
-        "    scrollbar_value5.set(val)\n",
-        "    temp_sel5 = float(scrollbar_value5.get())\n",
-        "\n",
-        "def update_value6(val):\n",
-        "    global temp_sel6\n",
-        "    scrollbar_value6 = tk.StringVar()\n",
-        "    scrollbar_value6.set(val)\n",
-        "    temp_sel6 = float(scrollbar_value6.get())\n",
-        "\n",
-        "\n",
-        "def update_scrollbar1():\n",
-        "    if 'gdf' in globals() and gdf is not None and temcol1 in gdf.columns:\n",
-        "        # Get the minimum and maximum values of the column in gdf\n",
-        "        min_val = gdf[temcol1].min()\n",
-        "        max_val = gdf[temcol1].max()\n",
-        "\n",
-        "        # Update the scrollbar's range\n",
-        "        scrollbar1.config(from_=min_val, to=max_val)\n",
-        "        scrollbar2.config(from_=min_val, to=max_val)\n",
-        "\n",
-        "def update_scrollbar2():\n",
-        "    if 'gdf' in globals() and gdf is not None and temcol2 in gdf.columns:\n",
-        "        # Get the minimum and maximum values of the column in gdf\n",
-        "        min_val = gdf[temcol2].min()\n",
-        "        max_val = gdf[temcol2].max()\n",
-        "\n",
-        "        # Update the scrollbar's range\n",
-        "        scrollbar3.config(from_=min_val, to=max_val)\n",
-        "        scrollbar4.config(from_=min_val, to=max_val)\n",
-        "\n",
-        "def update_scrollbar3():\n",
-        "    if 'gdf' in globals() and gdf is not None and temcol3 in gdf.columns:\n",
-        "        # Get the minimum and maximum values of the column in gdf\n",
-        "        min_val = gdf[temcol3].min()\n",
-        "        max_val = gdf[temcol3].max()\n",
-        "\n",
-        "        # Update the scrollbar's range\n",
-        "        scrollbar5.config(from_=min_val, to=max_val)\n",
-        "        scrollbar6.config(from_=min_val, to=max_val)\n",
-        "\n",
-        "def analysis_temp(gdf):\n",
-        "    global filtered_groups_gdf\n",
-        "    grouped = gdf.groupby(temcol1)\n",
-        "    results = []\n",
-        "    filtered_group = []\n",
-        "    filtered_groups = []\n",
-        "\n",
-        "    for name, group in grouped:\n",
-        "        filtered_group = filter_file(group)#, sample_n = sampleval)\n",
-        "        result = analysis(filtered_group)\n",
-        "\n",
-        "        # Create a new column with the group name\n",
-        "        result[temcol1] = name\n",
-        "        results.append(result)\n",
-        "        filtered_group[temcol1] = name\n",
-        "        filtered_groups.append(filtered_group)\n",
-        "\n",
-        "        #print(name, len(group))\n",
-        "    # Concatenate all the result dataframes\n",
-        "    result_gdf = pd.concat(results)\n",
-        "    filtered_groups_gdf = pd.concat(filtered_groups)\n",
-        "    return result_gdf#, filtered_groups_gdf\n",
-        "\n",
-        "def voronoi_rand(gdf_filtered):\n",
-        "    global gdf_voro, num_points\n",
-        "    num_points = num_fac*20\n",
-        "    if len(gdf_filtered) >= num_points:\n",
-        "        selected_points = gdf_filtered.sample(num_points)\n",
-        "    else:\n",
-        "        selected_points = gdf_filtered\n",
-        "\n",
-        "    coordinates = selected_points.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()\n",
-        "\n",
-        "    voro = voronoi_diagram(MultiPoint(coordinates))\n",
-        "    gdf_voro = gpd.GeoDataFrame(geometry=list(voro.geoms))\n",
-        "    gdf_voro.crs = gdf_filtered.crs # Set CRS\n",
-        "    gdf_voro = gpd.overlay(gdf_voro, gdf_convexhull, how='intersection')\n",
-        "    return gdf_voro\n",
-        "\n",
-        "def create_new_points(row, gdf_filtered, weight_col):\n",
-        "    global new_point_gdf\n",
-        "    sel_polygon = row.geometry\n",
-        "\n",
-        "    sel_gdf_filtered = gdf_filtered[gdf_filtered.within(sel_polygon)]\n",
-        "\n",
-        "    if sel_gdf_filtered.empty:\n",
-        "        # Handle empty case: maybe return None or an empty GeoDataFrame\n",
-        "        return gpd.GeoDataFrame(columns=[weight_col, 'geometry'], crs=gdf_filtered.crs)\n",
-        "\n",
-        "\n",
-        "    mean_x = np.mean(sel_gdf_filtered.geometry.x)\n",
-        "    std_x = np.std(sel_gdf_filtered.geometry.x)\n",
-        "    mean_y = np.mean(sel_gdf_filtered.geometry.y)\n",
-        "    std_y = np.std(sel_gdf_filtered.geometry.y)\n",
-        "\n",
-        "    # Generate new x and y coordinates based on Gaussian distribution\n",
-        "    new_x = np.random.normal(mean_x, std_x if std_x > 0 else 0.1)\n",
-        "    new_y = np.random.normal(mean_y, std_y if std_y > 0 else 0.1)\n",
-        "\n",
-        "    # Create new point\n",
-        "    new_point = Point(new_x, new_y)\n",
-        "\n",
-        "    # If the new point is outside the polygon, move it to the nearest location inside the polygon\n",
-        "    if not sel_polygon.contains(new_point):\n",
-        "        new_point = nearest_points(sel_polygon, new_point)[0]\n",
-        "\n",
-        "    new_point_gdf = gpd.GeoDataFrame(geometry=[new_point])\n",
-        "    weight_mean = np.mean(sel_gdf_filtered[weight_col])\n",
-        "    weight_std = np.std(sel_gdf_filtered[weight_col])\n",
-        "    new_point_gdf[weight_col] = np.random.normal(weight_mean, weight_std if weight_std > 0 else 0.1)\n",
-        "    new_point_gdf.crs = gdf_filtered.crs\n",
-        "\n",
-        "    return new_point_gdf\n",
-        "\n",
-        "def create_new_points_apply():\n",
-        "    global all_new_points_gdf\n",
-        "    gdf_voro = voronoi_rand(gdf_filtered)\n",
-        "    all_new_points_list = gdf_voro.apply(create_new_points, axis=1, args=(gdf_filtered, weight_col))\n",
-        "\n",
-        "    # Filter out empty GeoDataFrames\n",
-        "    all_new_points_list = [gdf for gdf in all_new_points_list if not gdf.empty]\n",
-        "\n",
-        "    if not all_new_points_list:\n",
-        "        # Handle case where all results were empty\n",
-        "        all_new_points_gdf = gpd.GeoDataFrame(columns=[weight_col, 'geometry'], crs=gdf_filtered.crs)\n",
-        "    else:\n",
-        "        all_new_points_gdf = pd.concat(all_new_points_list, ignore_index=True)\n",
-        "\n",
-        "\n",
-        "def non_dominated_solutions_val(df):\n",
-        "    # Initialize an empty dataframe to store the non-dominated solutions\n",
-        "    non_dominated_df = pd.DataFrame()\n",
-        "\n",
-        "    # Sort the temporary dataframe by 'sum_weight' (descending) and 'sum_weighted_distance' (ascending)\n",
-        "    df_sorted = df.sort_values(by=['covered_per', 'mean_dist'], ascending=[False, True])\n",
-        "\n",
-        "    if df_sorted.empty:\n",
-        "        return non_dominated_df, gpd.GeoDataFrame(geometry=[])\n",
-        "\n",
-        "    # Initialize the current maximum 'sum_weight' and minimum 'sum_weighted_distance'\n",
-        "    min_mean_dist = df_sorted.iloc[0]['mean_dist']\n",
-        "\n",
-        "    # Add the first row (which is non-dominated by definition) to the non-dominated solutions dataframe\n",
-        "    non_dominated_df = pd.concat([non_dominated_df, df_sorted.iloc[[0]]])\n",
-        "\n",
-        "    # Iterate over the rest of the rows\n",
-        "    for i in range(1, len(df_sorted)):\n",
-        "        row = df_sorted.iloc[i]\n",
-        "\n",
-        "        # If the current row is non-dominated, update the current maximum 'sum_weight' and minimum 'sum_weighted_distance', and add the row to the non-dominated solutions dataframe\n",
-        "        if row['mean_dist'] < min_mean_dist:\n",
-        "            min_mean_dist = row['mean_dist']\n",
-        "            non_dominated_df = pd.concat([non_dominated_df, df_sorted.iloc[[i]]])\n",
-        "\n",
-        "    if 'result_gdf_tot' in globals():\n",
-        "        non_result_gdf_tot = result_gdf_tot[result_gdf_tot['uniq_ind'].isin(non_dominated_df['uniq_ind'])]\n",
-        "    else:\n",
-        "        non_result_gdf_tot = gpd.GeoDataFrame(geometry=[])\n",
-        "\n",
-        "    return non_dominated_df, non_result_gdf_tot\n",
-        "\n",
-        "def run_analysis():\n",
-        "    global result_gdf_tot, result_df_tot, non_result_gdf_tot, result_filtered, non_result_filtered\n",
-        "\n",
-        "    if 'gdf_filtered' not in globals() or gdf_filtered is None:\n",
-        "        print(\"Please filter data first (click Visualize)\")\n",
-        "        visualize_gdf() # Try to filter\n",
-        "        if 'gdf_filtered' not in globals() or gdf_filtered is None:\n",
-        "             print(\"Data not available\")\n",
-        "             return\n",
-        "\n",
-        "    result_gdf_tot = gpd.GeoDataFrame(geometry=gpd.GeoSeries(dtype=Point))\n",
-        "    result_df_tot = pd.DataFrame(columns=['uniq_ind', 'sum_expected_va', 'weighted_distance'])\n",
-        "    #result_gdf_tot_all = gpd.GeoDataFrame(geometry=gpd.GeoSeries(dtype=Point))\n",
-        "    #result_df_tot_all = pd.DataFrame(columns=['uniq_ind', 'sum_expected_va', 'weighted_distance'])\n",
-        "\n",
-        "    for i in range(num_vor):\n",
-        "        create_new_points_apply()\n",
-        "        sam_gdf = all_new_points_gdf\n",
-        "\n",
-        "        if sam_gdf.empty or len(sam_gdf) < num_fac:\n",
-        "            print(f\"Skipping iteration {i}: not enough sampled points.\")\n",
-        "            continue # Skip if not enough points to sample\n",
-        "\n",
-        "        result_gdf = analysis(sam_gdf)\n",
-        "        result_pd = calculate_values(sam_gdf, result_gdf)\n",
-        "\n",
-        "        if result_gdf_tot.crs is None:\n",
-        "             result_gdf_tot.crs = sam_gdf.crs\n",
-        "\n",
-        "        result_gdf_tot = pd.concat([result_gdf_tot, result_gdf])\n",
-        "        result_df_tot = pd.concat([result_df_tot, result_pd])\n",
-        "\n",
-        "    if result_gdf_tot.empty:\n",
-        "        print(\"Analysis resulted in no solutions.\")\n",
-        "        return\n",
-        "\n",
-        "    result_gdf_tot['uniq_ind'] = np.repeat(np.arange((len(result_gdf_tot))/num_fac), num_fac)\n",
-        "    result_df_tot[\"uniq_ind\"] = np.arange(len(result_df_tot))\n",
-        "\n",
-        "#    non_result_gdf_tot = non_dom_coords(gdf_filtered, result_gdf_tot)\n",
-        "    result_filtered = calculate_values(gdf_filtered, result_gdf_tot)\n",
-        "    non_result_filtered, non_result_gdf_tot = non_dominated_solutions_val(result_filtered)\n",
-        "#    non_result_filtered = calculate_values(gdf_filtered, non_result_gdf_tot)\n",
-        "\n",
-        "\n",
-        "    new_window = tk.Toplevel(root)\n",
-        "\n",
-        "\n",
-        "    fig = plt.figure(figsize=(15, 15))\n",
-        "    gs = gridspec.GridSpec(2, 2)  # Create a grid\n",
-        "\n",
-        "    ax0 = plt.subplot(gs[0, :])  # First subplot for the map\n",
-        "    sns.kdeplot(data=result_gdf_tot, x=result_gdf_tot['geometry'].x, y=result_gdf_tot['geometry'].y,\n",
-        "                        ax=ax0, cmap=\"viridis\", fill=True, alpha = 0.5)\n",
-        "    if 'bg_gdf' in globals() and bg_gdf is not None:\n",
-        "        bg_gdf.plot(ax = ax0, facecolor='none', edgecolor='black')\n",
-        "    gdf_filtered.plot(ax=ax0, color='cornflowerblue', edgecolor=\"black\", label='Demand', alpha = 0.5)\n",
-        "    result_gdf_tot.plot(ax=ax0, color = \"black\", label='Dominated solutions')\n",
-        "    non_result_gdf_tot.plot(ax=ax0, color='red', marker='*', label='Solutions', edgecolor = \"black\", markersize = 200)\n",
-        "    ax0.set_title('Selected Demands and Non-dominated Solutions')\n",
-        "    ax0.legend()\n",
-        "    ax0.grid(True)\n",
-        "\n",
-        "    ax1 = plt.subplot(gs[1, 0])\n",
-        "    ax1.plot(result_filtered['covered_per'], result_filtered['mean_dist'], 'o', color = \"black\", markersize = 10)  # Add result_filtered\n",
-        "    ax1.plot(non_result_filtered['covered_per'], non_result_filtered['mean_dist'], '*', color = \"red\", markersize = 10)\n",
-        "    ax1.set_xlabel('Coverage (%)')\n",
-        "    ax1.set_ylabel('Mean distance (ft.)')\n",
-        "    ax1.set_title('Trade-off Solutions')\n",
-        "    if not non_result_filtered.empty:\n",
-        "        x_range = non_result_filtered['covered_per'].max() - non_result_filtered['covered_per'].min()\n",
-        "        y_range = non_result_filtered['mean_dist'].max() - non_result_filtered['mean_dist'].min()\n",
-        "        ax1.set_xlim([non_result_filtered['covered_per'].min() - x_range, non_result_filtered['covered_per'].max() + x_range/4])\n",
-        "        ax1.set_ylim([non_result_filtered['mean_dist'].min() - y_range/4, non_result_filtered['mean_dist'].max() + y_range])\n",
-        "    ax1.grid(True)\n",
-        "\n",
-        "    ax2 = plt.subplot(gs[1, 1])  # Third subplot for jointplot\n",
-        "    sns.kdeplot(data=result_df_tot, x=\"covered_per\", y=\"mean_dist\", ax=ax2, fill=True, alpha=0.5)\n",
-        "    sns.scatterplot(data=result_df_tot, x=\"covered_per\", y=\"mean_dist\", color=\"black\", ax=ax2)\n",
-        "    sns.scatterplot(data=non_result_filtered, x=\"covered_per\", y=\"mean_dist\", marker =  \"*\", color=\"red\", edgecolor = \"black\", ax=ax2, s=200)\n",
-        "    ax2.set_xlabel('Coverage (%)')\n",
-        "    ax2.set_ylabel('Mean distance (ft.)')\n",
-        "    ax2.set_title(f'Simulated Trade-off Solutions with {num_fac*20} Demands')\n",
-        "\n",
-        "    plt.tight_layout()\n",
-        "\n",
-        "    # Create a canvas and add it to the tkinter window\n",
-        "    canvas_results = FigureCanvasTkAgg(fig, master=new_window)\n",
-        "    canvas_results.draw()\n",
-        "    canvas_results.get_tk_widget().pack()\n",
-        "\n",
-        "class ToolTip:\n",
-        "    def __init__(self, widget, text):\n",
-        "        self.widget = widget\n",
-        "        self.text = text\n",
-        "        self.tooltip = None\n",
-        "        self.widget.bind(\"<Enter>\", self.show_tooltip)\n",
-        "        self.widget.bind(\"<Leave>\", self.hide_tooltip)\n",
-        "\n",
-        "    def show_tooltip(self, event=None):\n",
-        "        x, y, _, _ = self.widget.bbox(\"insert\")\n",
-        "        x += self.widget.winfo_rootx() + 25\n",
-        "        y += self.widget.winfo_rooty() + 20\n",
-        "        self.tooltip = tk.Toplevel(self.widget)\n",
-        "        self.tooltip.wm_overrideredirect(True)\n",
-        "        self.tooltip.wm_geometry(f\"+{x}+{y}\")\n",
-        "        label = tk.Label(self.tooltip, text=self.text, background=\"#ffffe0\", relief=\"solid\", borderwidth=1)\n",
-        "        label.pack()\n",
-        "\n",
-        "    def hide_tooltip(self, event=None):\n",
-        "        if self.tooltip:\n",
-        "            self.tooltip.destroy()\n",
-        "            self.tooltip = None\n",
-        "\n",
-        "def generate_kde_plots():\n",
-        "    if 'gdf_filtered' not in globals() or gdf_filtered is None:\n",
-        "        print(\"Please filter data first (click Visualize)\")\n",
-        "        return\n",
-        "\n",
-        "    # Precompute unique values\n",
-        "    unique_values = {}\n",
-        "    if temcol1 in gdf_filtered.columns:\n",
-        "        unique_values[temcol1] = gdf_filtered[temcol1].unique()\n",
-        "    if temcol2 in gdf_filtered.columns:\n",
-        "        unique_values[temcol2] = gdf_filtered[temcol2].unique()\n",
-        "    if temcol3 in gdf_filtered.columns:\n",
-        "        unique_values[temcol3] = gdf_filtered[temcol3].unique()\n",
-        "\n",
-        "    if not unique_values:\n",
-        "        print(\"No temporal columns selected or found.\")\n",
-        "        return\n",
-        "\n",
-        "    new_window = tk.Toplevel(root)\n",
-        "    new_window.geometry(\"1200x800\")\n",
-        "    main_canvas = tk.Canvas(new_window)\n",
-        "    main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)\n",
-        "\n",
-        "    vscrollbar = ttk.Scrollbar(new_window, orient=\"vertical\", command=main_canvas.yview)\n",
-        "    vscrollbar.pack(side=tk.RIGHT, fill=\"y\")\n",
-        "    hscrollbar = ttk.Scrollbar(new_window, orient=\"horizontal\", command=main_canvas.xview)\n",
-        "    hscrollbar.pack(side=tk.BOTTOM, fill=\"x\")\n",
-        "    # hscrollbar.place(relx=0, rely=1, relwidth=1, anchor='sw') # pack is usually simpler\n",
-        "\n",
-        "    main_canvas.configure(xscrollcommand=hscrollbar.set, yscrollcommand=vscrollbar.set)\n",
-        "    main_canvas.bind('<Configure>', lambda e: main_canvas.configure(scrollregion=main_canvas.bbox(\"all\")))\n",
-        "\n",
-        "    scrollable_frame = tk.Frame(main_canvas)\n",
-        "    main_canvas.create_window((0, 0), window=scrollable_frame, anchor=\"nw\")\n",
-        "\n",
-        "    # Get unique values, provide defaults if columns not set\n",
-        "    values1 = unique_values.get(temcol1, [None])\n",
-        "    values2 = unique_values.get(temcol2, [None])\n",
-        "    values3 = unique_values.get(temcol3, [None])\n",
-        "\n",
-        "    # Create a separate plot for each unique value of temcol1\n",
-        "    for value1 in values1:\n",
-        "        num_rows = len(values2)\n",
-        "        num_cols = len(values3)\n",
-        "        fig, axes = plt.subplots(num_rows, num_cols, figsize=(num_cols * 5, num_rows * 5), squeeze=False)\n",
-        "\n",
-        "        title = f\"{temcol1}={value1}\" if temcol1 else \"KDE Plots\"\n",
-        "        fig.suptitle(title, fontsize=16)\n",
-        "\n",
-        "        for row_idx, value2 in enumerate(values2):\n",
-        "            for col_idx, value3 in enumerate(values3):\n",
-        "                ax = axes[row_idx, col_idx]\n",
-        "\n",
-        "                # Filter the dataframe for the current combination of values\n",
-        "                filtered_df = gdf_filtered.copy()\n",
-        "                if temcol1 and value1 is not None:\n",
-        "                    filtered_df = filtered_df[filtered_df[temcol1] == value1]\n",
-        "                if temcol2 and value2 is not None:\n",
-        "                    filtered_df = filtered_df[filtered_df[temcol2] == value2]\n",
-        "                if temcol3 and value3 is not None:\n",
-        "                    filtered_df = filtered_df[filtered_df[temcol3] == value3]\n",
-        "\n",
-        "                plot_title = []\n",
-        "                if temcol2: plot_title.append(f\"{temcol2}={value2}\")\n",
-        "                if temcol3: plot_title.append(f\"{temcol3}={value3}\")\n",
-        "                ax.set_title(\", \".join(plot_title))\n",
-        "\n",
-        "                if filtered_df.empty:\n",
-        "                    ax.text(0.5, 0.5, \"No Data\", horizontalalignment='center', verticalalignment='center', transform=ax.transAxes)\n",
-        "                    continue\n",
-        "\n",
-        "                # Generate the KDE map\n",
-        "                sns.kdeplot(data=filtered_df, x=filtered_df['geometry'].x, y=filtered_df['geometry'].y,\n",
-        "                            ax=ax, cmap=\"viridis\", fill=True)\n",
-        "                ax.scatter(filtered_df['geometry'].x, filtered_df['geometry'].y, color='cornflowerblue', s=10, label='Filtered demands')\n",
-        "\n",
-        "                if 'bg_gdf' in globals() and bg_gdf is not None:\n",
-        "                    bg_gdf.plot(ax=ax, color='none', edgecolor='black', linewidth=1)\n",
-        "\n",
-        "                # Set labels and title\n",
-        "                ax.set_xlabel(\" \")\n",
-        "                ax.set_ylabel(\" \")\n",
-        "\n",
-        "        plt.tight_layout(rect=[0, 0, 1, 0.95])\n",
-        "        # plt.show() # Don't use plt.show() with tkinter canvas\n",
-        "        canvas_kde = FigureCanvasTkAgg(fig, master=scrollable_frame)\n",
-        "        canvas_kde.draw()\n",
-        "        widget = canvas_kde.get_tk_widget()\n",
-        "        widget.pack()\n",
-        "\n",
-        "\n",
-        "def generate_eda_plots():\n",
-        "    global gdf_unfiltered\n",
-        "\n",
-        "    if 'gdf_filtered' not in globals() or gdf_filtered is None:\n",
-        "        print(\"Please filter data first (click Visualize)\")\n",
-        "        return\n",
-        "    if 'gdf' not in globals() or gdf is None:\n",
-        "        print(\"Original GDF not loaded.\")\n",
-        "        return\n",
-        "\n",
-        "    num_points = num_fac*20\n",
-        "\n",
-        "    # Create a mask for filtered data\n",
-        "    filtered_indices = gdf_filtered.index\n",
-        "    gdf_unfiltered = gdf[~gdf.index.isin(filtered_indices)]\n",
-        "\n",
-        "    new_window = tk.Toplevel(root)\n",
-        "    new_window.geometry(\"1200x800\")\n",
-        "    main_canvas = tk.Canvas(new_window)\n",
-        "    main_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)\n",
-        "\n",
-        "    vscrollbar = ttk.Scrollbar(new_window, orient=\"vertical\", command=main_canvas.yview)\n",
-        "    vscrollbar.pack(side=tk.RIGHT, fill=\"y\")\n",
-        "    hscrollbar = ttk.Scrollbar(new_window, orient=\"horizontal\", command=main_canvas.xview)\n",
-        "    hscrollbar.pack(side=tk.BOTTOM, fill=\"x\")\n",
-        "    # hscrollbar.place(relx=0, rely=1, relwidth=1, anchor='sw')\n",
-        "\n",
-        "    main_canvas.configure(xscrollcommand=hscrollbar.set, yscrollcommand=vscrollbar.set)\n",
-        "    main_canvas.bind('<Configure>', lambda e: main_canvas.configure(scrollregion=main_canvas.bbox(\"all\")))\n",
-        "\n",
-        "    scrollable_frame = tk.Frame(main_canvas)\n",
-        "    main_canvas.create_window((0, 0), window=scrollable_frame, anchor=\"nw\")\n",
-        "\n",
-        "    fig = plt.figure(figsize=(20, 30))\n",
-        "    fig.suptitle('Kolmogorov-Smirnov test, Ripley\\\\'s K, and Spatial distribution', fontsize=16)\n",
-        "    gs = gridspec.GridSpec(6, 2)  # Create a grid\n",
-        "\n",
-        "    # --- Plot 0: KS Test X ---\n",
-        "    ax0 = plt.subplot(gs[0, 0])\n",
-        "    if not gdf_unfiltered.empty:\n",
-        "        ks_statistic, p_value = ks_2samp(gdf_unfiltered['geometry'].x, gdf_filtered['geometry'].x)\n",
-        "        ax0.plot(sorted(gdf_unfiltered['geometry'].x), np.arange(1, len(gdf_unfiltered['geometry'].x) + 1) / len(gdf_unfiltered['geometry'].x), label='Unselected data')\n",
-        "        ax0.text(0.7, 0.3, f\"KS Statistic: {ks_statistic:.4f}\", transform=ax0.transAxes)\n",
-        "        ax0.text(0.7, 0.25, f\"P-value: {p_value:.4e}\", transform=ax0.transAxes)\n",
-        "    ax0.plot(sorted(gdf_filtered['geometry'].x), np.arange(1, len(gdf_filtered['geometry'].x) + 1) / len(gdf_filtered['geometry'].x), label='Filtered data')\n",
-        "    ax0.set_xlabel('Value')\n",
-        "    ax0.set_ylabel('ECDF')\n",
-        "    ax0.set_title(\"X coordinates\")\n",
-        "    ax0.legend()\n",
-        "    ax0.grid(True)\n",
-        "\n",
-        "    # --- Plot 1: KS Test Y ---\n",
-        "    ax1 = plt.subplot(gs[0, 1])\n",
-        "    if not gdf_unfiltered.empty:\n",
-        "        ks_statistic, p_value = ks_2samp(gdf_unfiltered['geometry'].y, gdf_filtered['geometry'].y)\n",
-        "        ax1.plot(sorted(gdf_unfiltered['geometry'].y), np.arange(1, len(gdf_unfiltered['geometry'].y) + 1) / len(gdf_unfiltered['geometry'].y), label='Unselected data')\n",
-        "        ax1.text(0.7, 0.3, f\"KS Statistic: {ks_statistic:.4f}\", transform=ax1.transAxes)\n",
-        "        ax1.text(0.7, 0.25, f\"P-value: {p_value:.4e}\", transform=ax1.transAxes)\n",
-        "    ax1.plot(sorted(gdf_filtered['geometry'].y), np.arange(1, len(gdf_filtered['geometry'].y) + 1) / len(gdf_filtered['geometry'].y), label='Filtered data')\n",
-        "    ax1.set_xlabel('Value')\n",
-        "    ax1.set_ylabel('ECDF')\n",
-        "    ax1.set_title(\"Y coordinates\")\n",
-        "    ax1.legend()\n",
-        "    ax1.grid(True)\n",
-        "\n",
-        "    # --- Plot 2: KS Test Weight Column ---\n",
-        "    ax2 = plt.subplot(gs[1, 0])\n",
-        "    if weight_col in gdf.columns and not gdf_unfiltered.empty:\n",
-        "        ks_statistic, p_value = ks_2samp(gdf_unfiltered[weight_col], gdf_filtered[weight_col])\n",
-        "        ax2.plot(sorted(gdf_unfiltered[weight_col]), np.arange(1, len(gdf_unfiltered[weight_col]) + 1) / len(gdf_unfiltered[weight_col]), label='Unselected data')\n",
-        "        ax2.text(0.7, 0.3, f\"KS Statistic: {ks_statistic:.4f}\", transform=ax2.transAxes)\n",
-        "        ax2.text(0.7, 0.25, f\"P-value: {p_value:.4e}\", transform=ax2.transAxes)\n",
-        "    if weight_col in gdf.columns:\n",
-        "        ax2.plot(sorted(gdf_filtered[weight_col]), np.arange(1, len(gdf_filtered[weight_col]) + 1) / len(gdf_filtered[weight_col]), label='Filtered data')\n",
-        "    ax2.set_xlabel('Value')\n",
-        "    ax2.set_ylabel('ECDF')\n",
-        "    ax2.set_title(weight_col)\n",
-        "    ax2.legend()\n",
-        "\n",
-        "    # --- Ripley's K Setup ---\n",
-        "    if 'bg_gdf' not in globals() or bg_gdf is None:\n",
-        "        print(\"Background GDF not loaded, cannot perform Ripley's K\")\n",
-        "        return # Cannot continue\n",
-        "\n",
-        "    boundary = bg_gdf.total_bounds\n",
-        "    x_min, y_min, x_max, y_max = boundary\n",
-        "    area = bg_gdf['geometry'].area.sum()\n",
-        "\n",
-        "    distances = np.linspace(0, (area/2)**0.5, 100)\n",
-        "    Kest = RipleysKEstimator(area=area, x_max=x_max, y_max=y_max, x_min=x_min, y_min=y_min)\n",
-        "    r = distances\n",
-        "    num_iterations = 100\n",
-        "\n",
-        "    mc_points_kest_list = []\n",
-        "    umc_points_kest_list = []\n",
-        "    cmc_points_kest_list = []\n",
-        "\n",
-        "    for _ in range(num_iterations):\n",
-        "        if len(gdf_filtered) >= num_points:\n",
-        "            mc_points = gdf_filtered.sample(num_points)\n",
-        "        else:\n",
-        "            mc_points = gdf_filtered\n",
-        "\n",
-        "        if not gdf_unfiltered.empty:\n",
-        "            if len(gdf_unfiltered) >= num_points:\n",
-        "                umc_points = gdf_unfiltered.sample(num_points)\n",
-        "            else:\n",
-        "                umc_points = gdf_unfiltered.sample(len(gdf_filtered), replace=True) if len(gdf_filtered) > 0 else gdf_unfiltered\n",
-        "        else:\n",
-        "            umc_points = gpd.GeoDataFrame(geometry=[]) # Empty\n",
-        "\n",
-        "        if not mc_points.empty and not umc_points.empty:\n",
-        "            cmc_points = pd.concat([mc_points.sample(int(len(mc_points)/2)), umc_points.sample(int(len(umc_points)/2))])\n",
-        "        elif not mc_points.empty:\n",
-        "            cmc_points = mc_points\n",
-        "        elif not umc_points.empty:\n",
-        "            cmc_points = umc_points\n",
-        "        else:\n",
-        "            cmc_points = gpd.GeoDataFrame(geometry=[])\n",
-        "\n",
-        "\n",
-        "        if not mc_points.empty:\n",
-        "            mc_points_array = np.array(mc_points.geometry.apply(lambda geom: (geom.x, geom.y)).to_list())\n",
-        "            mc_points_kest = Kest(data=mc_points_array, radii=r, mode='ripley')\n",
-        "            mc_points_kest_list.append(mc_points_kest)\n",
-        "\n",
-        "        if not umc_points.empty:\n",
-        "            umc_points_array = np.array(umc_points.geometry.apply(lambda geom: (geom.x, geom.y)).to_list())\n",
-        "            umc_points_kest = Kest(data=umc_points_array, radii=r, mode='ripley')\n",
-        "            umc_points_kest_list.append(umc_points_kest)\n",
-        "\n",
-        "        if not cmc_points.empty:\n",
-        "            cmc_points_array = np.array(cmc_points.geometry.apply(lambda geom: (geom.x, geom.y)).to_list())\n",
-        "            cmc_points_kest = Kest(data=cmc_points_array, radii=r, mode='ripley')\n",
-        "            cmc_points_kest_list.append(cmc_points_kest)\n",
-        "\n",
-        "    whole_points_array = np.array(gdf.geometry.apply(lambda geom: (geom.x, geom.y)).to_list())\n",
-        "    whole_points_kest = Kest(data=whole_points_array, radii=r, mode='none')\n",
-        "\n",
-        "    # --- Plot 3: Boxplot Ripley's K ---\n",
-        "    ax3 = plt.subplot(gs[1, 1])\n",
-        "    data_dict = {}\n",
-        "    if mc_points_kest_list:\n",
-        "        data_dict['Filtered demands'] = np.concatenate(mc_points_kest_list) # Flatten\n",
-        "    if umc_points_kest_list:\n",
-        "        data_dict['Unfiltered demands'] = np.concatenate(umc_points_kest_list) # Flatten\n",
-        "    if cmc_points_kest_list:\n",
-        "        data_dict['Combined demands'] = np.concatenate(cmc_points_kest_list) # Flatten\n",
-        "    data_dict['Whole demands'] = whole_points_kest\n",
-        "\n",
-        "    # Need to handle potentially different lengths for boxplot\n",
-        "    data_melted_list = []\n",
-        "    if 'Filtered demands' in data_dict:\n",
-        "        data_melted_list.append(pd.DataFrame({'Group': 'Filtered demands', 'Value': data_dict['Filtered demands']}))\n",
-        "    if 'Unfiltered demands' in data_dict:\n",
-        "         data_melted_list.append(pd.DataFrame({'Group': 'Unfiltered demands', 'Value': data_dict['Unfiltered demands']}))\n",
-        "    if 'Combined demands' in data_dict:\n",
-        "         data_melted_list.append(pd.DataFrame({'Group': 'Combined demands', 'Value': data_dict['Combined demands']}))\n",
-        "    if 'Whole demands' in data_dict:\n",
-        "         data_melted_list.append(pd.DataFrame({'Group': 'Whole demands', 'Value': data_dict['Whole demands']}))\n",
-        "\n",
-        "    if data_melted_list:\n",
-        "        data_melted = pd.concat(data_melted_list)\n",
-        "        palette = {\"Filtered demands\": \"cornflowerblue\", \"Unfiltered demands\": \"indianred\", \"Combined demands\": \"yellowgreen\", \"Whole demands\": \"black\"}\n",
-        "        sns.boxplot(x='Group', y='Value', data=data_melted, ax=ax3, palette=palette)\n",
-        "\n",
-        "    ax3.set_title('Monte Carlo simulated Ripley\\\\'s K value')\n",
-        "    ax3.set_xlabel('Group')\n",
-        "    ax3.set_ylabel('Value')\n",
-        "    ax3.grid(True)\n",
-        "\n",
-        "    # --- Plot 4: Ripley's K Line Plot ---\n",
-        "    ax4 = plt.subplot(gs[2:4,:])\n",
-        "\n",
-        "    if mc_points_kest_list:\n",
-        "        mc_points_kest_array = np.array(mc_points_kest_list)\n",
-        "        mc_points_kest_mean = np.nanmean(mc_points_kest_array, axis=0)\n",
-        "        mc_ci_lower, mc_ci_upper = np.empty_like(mc_points_kest_mean), np.empty_like(mc_points_kest_mean)\n",
-        "        for i in range(mc_points_kest_array.shape[1]):\n",
-        "            _, mc_ci_lower[i], mc_ci_upper[i] = nanmean_confidence_interval(mc_points_kest_array[:, i])\n",
-        "        ax4.plot(r, mc_points_kest_mean, color='cornflowerblue', label='Filtered demands')\n",
-        "        ax4.fill_between(r, mc_ci_lower, mc_ci_upper, color='cornflowerblue', alpha=0.2)\n",
-        "\n",
-        "    if umc_points_kest_list:\n",
-        "        umc_points_kest_array = np.array(umc_points_kest_list)\n",
-        "        umc_points_kest_mean = np.nanmean(umc_points_kest_array, axis=0)\n",
-        "        umc_ci_lower, umc_ci_upper = np.empty_like(umc_points_kest_mean), np.empty_like(umc_points_kest_mean)\n",
-        "        for i in range(umc_points_kest_array.shape[1]):\n",
-        "            _, umc_ci_lower[i], umc_ci_upper[i] = nanmean_confidence_interval(umc_points_kest_array[:, i])\n",
-        "        ax4.plot(r, umc_points_kest_mean, color='indianred', label='Unselected demands')\n",
-        "        ax4.fill_between(r, umc_ci_lower, umc_ci_upper, color='indianred', alpha=0.2)\n",
-        "\n",
-        "    if cmc_points_kest_list:\n",
-        "        cmc_points_kest_array = np.array(cmc_points_kest_list)\n",
-        "        cmc_points_kest_mean = np.nanmean(cmc_points_kest_array, axis=0)\n",
-        "        cmc_ci_lower, cmc_ci_upper = np.empty_like(cmc_points_kest_mean), np.empty_like(cmc_points_kest_mean)\n",
-        "        for i in range(cmc_points_kest_array.shape[1]):\n",
-        "            _, cmc_ci_lower[i], cmc_ci_upper[i] = nanmean_confidence_interval(cmc_points_kest_array[:, i])\n",
-        "        ax4.plot(r, cmc_points_kest_mean, color='yellowgreen', label='Combined demands')\n",
-        "        ax4.fill_between(r, cmc_ci_lower, cmc_ci_upper, color='yellowgreen', alpha=0.2)\n",
-        "\n",
-        "    ax4.plot(r, whole_points_kest, color='black', label='Expected random spatial pattern')\n",
-        "    ax4.set_xlabel(\"Distance\")\n",
-        "    ax4.set_ylabel(\"Ripley's K\")\n",
-        "    ax4.set_title(\"Mean Ripley's K with 95% Confidence Intervals using Monte Carlo Simulation\")\n",
-        "    ax4.legend()\n",
-        "    ax4.grid(True)\n",
-        "\n",
-        "    # --- Plot 5: Voronoi Overlap ---\n",
-        "    ax5 = plt.subplot(gs[4:6,:])\n",
-        "\n",
-        "    if 'gdf_convexhull' not in globals() or gdf_convexhull is None:\n",
-        "        print(\"Convex hull not defined.\")\n",
-        "        return\n",
-        "\n",
-        "    gdf_convexhull.crs = gdf.crs\n",
-        "    gdf_voro_ints = gpd.GeoDataFrame(columns=['id', 'geometry'], crs=gdf.crs)\n",
-        "\n",
-        "    for i in range(100): # Reduced iterations for speed\n",
-        "        if not gdf_unfiltered.empty:\n",
-        "            if len(gdf_unfiltered) >= num_points:\n",
-        "                selected_points2 = gdf_unfiltered.sample(num_points)\n",
-        "            else:\n",
-        "                selected_points2 = gdf_unfiltered.sample(num_points, replace=True) if len(gdf_unfiltered) > 0 else gdf_unfiltered\n",
-        "        else:\n",
-        "            selected_points2 = gpd.GeoDataFrame(geometry=[], crs=gdf.crs)\n",
-        "\n",
-        "        if selected_points2.empty: continue\n",
-        "\n",
-        "        coordinates2 = selected_points2.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()\n",
-        "        selected_points2['id'] = range(0, len(selected_points2))\n",
-        "        voro_all = voronoi_diagram(MultiPoint(coordinates2))\n",
-        "        gdf_voro_all = gpd.GeoDataFrame(geometry=list(voro_all.geoms), crs=gdf.crs)\n",
-        "        gdf_voro_all['geometry'] = gdf_voro_all.buffer(0)\n",
-        "        gdf_voro_all = gpd.overlay(gdf_voro_all, gdf_convexhull, how='intersection')\n",
-        "        gdf_voro_all = gpd.sjoin(gdf_voro_all, selected_points2, how=\"left\", predicate='intersects')\n",
-        "\n",
-        "        if len(gdf_filtered) >= num_points:\n",
-        "            selected_points = gdf_filtered.sample(num_points)\n",
-        "        else:\n",
-        "            selected_points = gdf_filtered\n",
-        "\n",
-        "        if selected_points.empty: continue\n",
-        "\n",
-        "        selected_points['id'] = range(0, len(selected_points))\n",
-        "        coordinates = selected_points.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()\n",
-        "\n",
-        "        # Find nearest IDs\n",
-        "        nearest_ids = []\n",
-        "        for _, row in selected_points.iterrows():\n",
-        "            point2 = row.geometry\n",
-        "            distances = selected_points2.distance(point2)\n",
-        "            if distances.empty:\n",
-        "                nearest_ids.append(None)\n",
-        "                continue\n",
-        "            min_dist_idx = distances.idxmin()\n",
-        "            nearest_id = selected_points2.loc[min_dist_idx, 'id']\n",
-        "            nearest_ids.append(nearest_id)\n",
-        "        selected_points['id'] = nearest_ids\n",
-        "        selected_points = selected_points.dropna(subset=['id']) # Drop points with no match\n",
-        "        selected_points['id'] = selected_points['id'].astype(int)\n",
-        "\n",
-        "\n",
-        "        voro = voronoi_diagram(MultiPoint(coordinates))\n",
-        "        gdf_voro = gpd.GeoDataFrame(geometry=list(voro.geoms), crs=gdf.crs)\n",
-        "        gdf_voro['geometry'] = gdf_voro.buffer(0)\n",
-        "        gdf_voro = gpd.overlay(gdf_voro, gdf_convexhull, how='intersection')\n",
-        "        gdf_voro = gpd.sjoin(gdf_voro, selected_points, how=\"left\", predicate='intersects')\n",
-        "\n",
-        "        intersections = []\n",
-        "        for idx, row in gdf_voro.iterrows():\n",
-        "            matching_row = gdf_voro_all[gdf_voro_all['id'] == row['id']]\n",
-        "            if not matching_row.empty:\n",
-        "                intersection_geom = row['geometry'].intersection(matching_row.iloc[0]['geometry'])\n",
-        "                if not intersection_geom.is_empty:\n",
-        "                    intersections.append({'id': row['id'], 'geometry': intersection_geom})\n",
-        "\n",
-        "        if intersections:\n",
-        "            gdf_voro_int = gpd.GeoDataFrame(intersections, geometry='geometry', crs=gdf_voro.crs)\n",
-        "            gdf_voro_ints = pd.concat([gdf_voro_ints, gdf_voro_int], ignore_index=True)\n",
-        "\n",
-        "    sel_gdf_int = gdf_voro_ints\n",
-        "    gdf_voro_ints2 = gpd.GeoDataFrame(columns=['id', 'geometry'], crs=gdf.crs)\n",
-        "\n",
-        "    for i in range(100): # Reduced iterations\n",
-        "        if len(gdf) >= num_points:\n",
-        "            selected_points2 = gdf.sample(num_points)\n",
-        "        else:\n",
-        "            selected_points2 = gdf\n",
-        "        coordinates2 = selected_points2.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()\n",
-        "        selected_points2['id'] = range(0, len(selected_points2))\n",
-        "        voro_all = voronoi_diagram(MultiPoint(coordinates2))\n",
-        "        gdf_voro_all = gpd.GeoDataFrame(geometry=list(voro_all.geoms), crs=gdf.crs)\n",
-        "        gdf_voro_all['geometry'] = gdf_voro_all.buffer(0)\n",
-        "        gdf_voro_all = gpd.overlay(gdf_voro_all, gdf_convexhull, how='intersection')\n",
-        "        gdf_voro_all = gpd.sjoin(gdf_voro_all, selected_points2, how=\"left\", predicate='intersects')\n",
-        "\n",
-        "        if len(gdf) >= num_points:\n",
-        "            selected_points = gdf.sample(num_points)\n",
-        "        else:\n",
-        "            selected_points = gdf\n",
-        "        selected_points['id'] = range(0, len(selected_points))\n",
-        "        coordinates = selected_points.geometry.apply(lambda geom: (geom.x, geom.y)).tolist()\n",
-        "\n",
-        "        nearest_ids = []\n",
-        "        for _, row in selected_points.iterrows():\n",
-        "            point2 = row.geometry\n",
-        "            distances = selected_points2.distance(point2)\n",
-        "            min_dist_idx = distances.idxmin()\n",
-        "            nearest_id = selected_points2.loc[min_dist_idx, 'id']\n",
-        "            nearest_ids.append(nearest_id)\n",
-        "        selected_points['id'] = nearest_ids\n",
-        "        selected_points['id'] = selected_points['id'].astype(int)\n",
-        "\n",
-        "        voro = voronoi_diagram(MultiPoint(coordinates))\n",
-        "        gdf_voro = gpd.GeoDataFrame(geometry=list(voro.geoms), crs=gdf.crs)\n",
-        "        gdf_voro['geometry'] = gdf_voro.buffer(0)\n",
-        "        gdf_voro = gpd.overlay(gdf_voro, gdf_convexhull, how='intersection')\n",
-        "        gdf_voro = gpd.sjoin(gdf_voro, selected_points, how=\"left\", predicate='intersects')\n",
-        "\n",
-        "        intersections = []\n",
-        "        for idx, row in gdf_voro.iterrows():\n",
-        "            matching_row = gdf_voro_all[gdf_voro_all['id'] == row['id']]\n",
-        "            if not matching_row.empty:\n",
-        "                intersection_geom = row['geometry'].intersection(matching_row.iloc[0]['geometry'])\n",
-        "                if not intersection_geom.is_empty:\n",
-        "                    intersections.append({'id': row['id'], 'geometry': intersection_geom})\n",
-        "\n",
-        "        if intersections:\n",
-        "            gdf_voro_int = gpd.GeoDataFrame(intersections, geometry='geometry', crs=gdf_voro.crs)\n",
-        "            gdf_voro_ints2 = pd.concat([gdf_voro_ints2, gdf_voro_int], ignore_index=True)\n",
-        "\n",
-        "    whole_gdf_int = gdf_voro_ints2\n",
-        "\n",
-        "    if not sel_gdf_int.empty and not whole_gdf_int.empty:\n",
-        "        ad_test_result = stats.anderson_ksamp([sel_gdf_int['geometry'].area, whole_gdf_int['geometry'].area])\n",
-        "        overlap_per = round(sel_gdf_int['geometry'].area.sum()/(5*gdf_convexhull['geometry'].area.sum()),2)\n",
-        "        overlap_per_w = round(whole_gdf_int['geometry'].area.sum()/(5*gdf_convexhull['geometry'].area.sum()),2)\n",
-        "        first_sel_polygons = sel_gdf_int.iloc[:num_points*10] # Reduced plot\n",
-        "\n",
-        "        gdf_convexhull.plot(ax=ax5, facecolor='cornflowerblue', edgecolor='black', alpha = 0.7)\n",
-        "        first_sel_polygons.plot(ax=ax5, facecolor=\"indianred\", edgecolor=\"none\", alpha = 0.01)\n",
-        "        ax5.text(0.1, 0.97, f'Overlapped intersection: \\n{overlap_per}%',\n",
-        "            verticalalignment='top', horizontalalignment='center',\n",
-        "            transform=ax5.transAxes, color='black', fontsize=10) # Changed ax to ax5\n",
-        "        ax5.text(0.3, 0.97, f'Intersection standard: \\n{overlap_per_w}%',\n",
-        "            verticalalignment='top', horizontalalignment='center',\n",
-        "            transform=ax5.transAxes, color='black', fontsize=10) # Changed ax to ax5\n",
-        "        ax5.text(0.15, 0.92, f'Anderson-Darling statistic: \\n{round(ad_test_result.statistic, 3)}',\n",
-        "            verticalalignment='top', horizontalalignment='center',\n",
-        "            transform=ax5.transAxes, color='black', fontsize=10) # Changed ax to ax5\n",
-        "        ax5.text(0.15, 0.87, f'Minimum significance level for rejection: \\n{round(ad_test_result.significance_level, 3)}',\n",
-        "            verticalalignment='top', horizontalalignment='center',\n",
-        "            transform=ax5.transAxes, color='black', fontsize=10) # Changed ax to ax5\n",
-        "        red_patch = mpatches.Patch(color='indianred', label='Selected objects specialized region')\n",
-        "        blue_patch = mpatches.Patch(color='cornflowerblue', label='Common objects region')\n",
-        "        ax5.legend(handles=[red_patch, blue_patch])\n",
-        "    else:\n",
-        "        ax5.text(0.5, 0.5, \"Not enough data for Voronoi plot\", horizontalalignment='center', verticalalignment='center', transform=ax5.transAxes)\n",
-        "\n",
-        "    ax5.grid(True)\n",
-        "\n",
-        "    # --- Finalize EDA Plot ---\n",
-        "    plt.tight_layout(rect=[0, 0, 1, 0.97]) # Adjust for suptitle\n",
-        "    canvas_eda = FigureCanvasTkAgg(fig, master=scrollable_frame)\n",
-        "    canvas_eda.draw()\n",
-        "    widget = canvas_eda.get_tk_widget()\n",
-        "    widget.pack()\n",
-        "\n",
-        "def multiple_visualize():\n",
-        "    generate_kde_plots()\n",
-        "    generate_eda_plots()\n",
-        "\n",
-        "#App running process\n",
-        "if __name__ == \"__main__\":\n",
-        "    root = tk.Tk()\n",
-        "    root.title(\"LAMOS\")\n",
-        "\n",
-        "    font = ('TimesNewRoman', 14)\n",
-        "\n",
-        "    for i in range(20):\n",
-        "        root.grid_rowconfigure(i, weight=2)\n",
-        "    for i in range(9):\n",
-        "        root.grid_columnconfigure(i, weight=2)\n",
-        "\n",
-        "    button = tk.Button(root, text=\"0. Area\", command=select_bg, font=font, bd=2, relief='solid')\n",
-        "    button.grid(row=0, column=0, columnspan=1, sticky='nsew')\n",
-        "    ToolTip(button, \"Input the research area\")\n",
-        "\n",
-        "    button2 = tk.Button(root, text=\"1. Input\", command=select_shapefile, font=font, bd=2, relief='solid')\n",
-        "    button2.grid(row=0, column=1, columnspan=2, sticky='nsew')\n",
-        "\n",
-        "    ToolTip(button2, \"The point shapefile you want to consider\")\n",
-        "\n",
-        "    parameter_set = tk.Button(root, text=\"2. Parameter Setting\", command=add_parameters, font=font, bd=2, relief='solid')\n",
-        "    parameter_set.grid(row=0, column=3, sticky='nsew')\n",
-        "    ToolTip(parameter_set, \"Weight column: the demand's weight\\nNumber of facilities: the number of your desired facilities\\\n",
-        "    \\nCoverage distance: the distance that facility can cover\\nNumber of partitions: how many non-dominated solutions will be considered\\\n",
-        "    \\nThreshold distance: when the solution distance moves less than this value, the algorithm will stop\\\n",
-        "    \\nMaximum iteration: when the iteration reaches the count, it will stop\")\n",
-        "\n",
-        "    weight_col_var = StringVar()\n",
-        "    weight_col_label = Label(root, text=\"Weight column: \", font=font)\n",
-        "    weight_col_label.grid(row=1, column=0, sticky='nsew')\n",
-        "    weight_col_entry = Entry(root, textvariable=weight_col_var, font=font)\n",
-        "    weight_col_entry.grid(row=1, column=1, sticky='nsew')\n",
-        "\n",
-        "    num_fac_var = StringVar()\n",
-        "    num_fac_label = Label(root, text=\"Number of facilities: \", font=font)\n",
-        "    num_fac_label.grid(row=2, column=0, sticky='nsew')\n",
-        "    num_fac_entry = Entry(root, textvariable=num_fac_var, font=font)\n",
-        "    num_fac_entry.grid(row=2, column=1, sticky='nsew')\n",
-        "\n",
-        "    demand_buffer_distance_var = StringVar()\n",
-        "    demand_buffer_distance_label = Label(root, text=\"Coverage distance: \", font=font)\n",
-        "    demand_buffer_distance_label.grid(row=3, column=0, sticky='nsew')\n",
-        "    demand_buffer_distance_entry = Entry(root, textvariable=demand_buffer_distance_var, font=font)\n",
-        "    demand_buffer_distance_entry.grid(row=3, column=1, sticky='nsew')\n",
-        "\n",
-        "    maximum_lambda_var = StringVar()\n",
-        "    maximum_lambda_label = Label(root, text=\"Number of partitions: \", font=font)\n",
-        "    maximum_lambda_label.grid(row=4, column=0, sticky='nsew')\n",
-        "    maximum_lambda_entry = Entry(root, textvariable=maximum_lambda_var, font=font)\n",
-        "    maximum_lambda_entry.grid(row=4, column=1, sticky='nsew')\n",
-        "\n",
-        "    threshold_dist_var = StringVar()\n",
-        "    threshold_dist_label = Label(root, text=\"Threshold distance: \", font=font)\n",
-        "    threshold_dist_label.grid(row=1, column=2, sticky='nsew')\n",
-        "    threshold_dist_entry = Entry(root, textvariable=threshold_dist_var, font=font)\n",
-        "    threshold_dist_entry.grid(row=1, column=3, sticky='nsew')\n",
-        "\n",
-        "    max_iter_var = StringVar()\n",
-        "    max_iter_label = Label(root, text=\"Maximum iteration: \", font=font)\n",
-        "    max_iter_label.grid(row=2, column=2, sticky='nsew')\n",
-        "    max_iter_entry = Entry(root, textvariable=max_iter_var, font=font)\n",
-        "    max_iter_entry.grid(row=2, column=3, sticky='nsew')\n",
-        "\n",
-        "    iteration_var = StringVar()\n",
-        "    iteration_label = Label(root, text=\"Number of iteration: \", font=font)\n",
-        "    iteration_label.grid(row=3, column=2, sticky='nsew')\n",
-        "    iteration_entry = Entry(root, textvariable=iteration_var, font=font)\n",
-        "    iteration_entry.grid(row=3, column=3, sticky='nsew')\n",
-        "\n",
-        "    vor_var = StringVar()\n",
-        "    vor_label = Label(root, text=\"Voronoi of iteration: \", font=font)\n",
-        "    vor_label.grid(row=4, column=2, sticky='nsew')\n",
-        "    vor_entry = Entry(root, textvariable=vor_var, font=font)\n",
-        "    vor_entry.grid(row=4, column=3, sticky='nsew')\n",
-        "\n",
-        "    visualization_set = tk.Button(root, text=\"Visualize\", command= visualize_gdf, font=font, bd=2, relief='solid')\n",
-        "    visualization_set.grid(row=0, column=7, sticky='nsew')\n",
-        "    ToolTip(visualization_set, \"Update the demands following the defined conditions\")\n",
-        "\n",
-        "    kde_plot = tk.Button(root, text=\"ESDA\", command=multiple_visualize, font=font, bd=2, relief='solid')\n",
-        "    kde_plot.grid(row=0, column=6, sticky='nsew')\n",
-        "    ToolTip(kde_plot, \"KDE plots will be generated\")\n",
-        "\n",
-        "    add_button1 = tk.Button(root, text=\"Temporal Variable (1)\", command=update_scrollbar1, font=font, bd=2, relief='solid', width=20)\n",
-        "    add_button1.grid(row=1, column=6, sticky='nsew')\n",
-        "    ToolTip(add_button1, \"Input the first temporal variable and click the button to activate it\")\n",
-        "    temp1_col_var = StringVar()\n",
-        "    temp1_col_entry = Entry(root, textvariable=temp1_col_var, font=font, width=20)\n",
-        "    temp1_col_entry.grid(row=1, column=7, sticky='nsew')\n",
-        "\n",
-        "    scrollbar1_label = Label(root, text=\"From: \", font=font, width=20)\n",
-        "    scrollbar1_label.grid(row=2, column=5, sticky='nsew')\n",
-        "    scrollbar1 = tk.Scale(root, from_=0, to=10, orient=tk.HORIZONTAL, command=update_value1, font=font, bd=2, relief='solid', width=20)\n",
-        "    scrollbar1.grid(row=2, column=6, columnspan=3, sticky='nsew')\n",
-        "\n",
-        "    scrollbar2_label = Label(root, text=\"To: \", font=font)\n",
-        "    scrollbar2_label.grid(row=3, column=5, sticky='nsew')\n",
-        "    scrollbar2 = tk.Scale(root, from_=0, to=10, orient=tk.HORIZONTAL, command=update_value2, font=font, bd=2, relief='solid')\n",
-        "    scrollbar2.grid(row=3, column=6, columnspan=3, sticky='nsew')\n",
-        "\n",
-        "    add_button2 = tk.Button(root, text=\"Temporal Variable (2)\", command=update_scrollbar2, font=font, bd=2, relief='solid', width=20)\n",
-        "    add_button2.grid(row=4, column=6, sticky='nsew')\n",
-        "    ToolTip(add_button2, \"Input the second temporal variable and click the button to activate it\")\n",
-        "    temp2_col_var = StringVar()\n",
-        "    temp2_col_entry = Entry(root, textvariable=temp2_col_var, font=font, width=20)\n",
-        "    temp2_col_entry.grid(row=4, column=7, sticky='nsew')\n",
-        "\n",
-        "    scrollbar3_label = Label(root, text=\"From: \", font=font, width=20)\n",
-        "    scrollbar3_label.grid(row=5, column=5, sticky='nsew')\n",
-        "    scrollbar3 = tk.Scale(root, from_=0, to=10, orient=tk.HORIZONTAL, command=update_value3, font=font, bd=2, relief='solid', width=20)\n",
-        "    scrollbar3.grid(row=5, column=6, columnspan=3, sticky='nsew')\n",
-        "\n",
-        "    scrollbar4_label = Label(root, text=\"To: \", font=font, width=20)\n",
-        "    scrollbar4_label.grid(row=6, column=5, sticky='nsew')\n",
-        "    scrollbar4 = tk.Scale(root, from_=0, to=10, orient=tk.HORIZONTAL, command=update_value4, font=font, bd=2, relief='solid', width=20)\n",
-        "    scrollbar4.grid(row=6, column=6, columnspan=3, sticky='nsew')\n",
-        "\n",
-        "    add_button3 = tk.Button(root, text=\"Temporal Variable (3)\", command=update_scrollbar3, font=font, bd=2, relief='solid', width=20)\n",
-        "    add_button3.grid(row=7, column=6, sticky='nsew')\n",
-        "    ToolTip(add_button3, \"Input the third temporal variable and click the button to activate it\")\n",
-        "    temp3_col_var = StringVar()\n",
-        "    temp3_col_entry = Entry(root, textvariable=temp3_col_var, font=font, width=20)\n",
-        "    temp3_col_entry.grid(row=7, column=7, sticky='nsew')\n",
-        "\n",
-        "    scrollbar5_label = Label(root, text=\"From: \", font=font, width=20)\n",
-        "    scrollbar5_label.grid(row=8, column=5, sticky='nsew')\n",
-        "    scrollbar5 = tk.Scale(root, from_=0, to=10, orient=tk.HORIZONTAL, command=update_value5, font=font, bd=2, relief='solid', width=20)\n",
-        "    scrollbar5.grid(row=8, column=6, columnspan=3, sticky='nsew')\n",
-        "\n",
-        "    scrollbar6_label = Label(root, text=\"To: \", font=font, width=20)\n",
-        "    scrollbar6_label.grid(row=9, column=5, sticky='nsew')\n",
-        "    scrollbar6 = tk.Scale(root, from_=0, to=10, orient=tk.HORIZONTAL, command=update_value6, font=font, bd=2, relief='solid', width=20)\n",
-        "    scrollbar6.grid(row=9, column=6, columnspan=3, sticky='nsew')\n",
-        "\n",
-        "    #add_button = tk.Button(root, text=\"Sampling\", command=add_parameters, font=font, bd=2, relief='solid')\n",
-        "    #add_button.grid(row=8, column=6, sticky='nsew')\n",
-        "    #sample_val_var = StringVar()\n",
-        "    #sample_val_entry = Entry(root, textvariable=sample_val_var, font=font)\n",
-        "    #sample_val_entry.grid(row=8, column=7, sticky='nsew')\n",
-        "\n",
-        "    col1_label = Label(root, text=\"Column\", font=font)\n",
-        "    col1_label.grid(row=10, column=6, sticky='nsew')\n",
-        "\n",
-        "    col2_label = Label(root, text=\"Value\", font=font)\n",
-        "    col2_label.grid(row=10, column=7, sticky='nsew')\n",
-        "\n",
-        "    add1_col_var = StringVar()\n",
-        "    add1_val_var = StringVar()\n",
-        "    add1_label = Label(root, text=\"Attribute Variable (1): \", font=font)\n",
-        "    add1_label.grid(row=11, column=5, sticky='nsew')\n",
-        "    add1_col_entry = Entry(root, textvariable=add1_col_var, font=font)\n",
-        "    add1_col_entry.grid(row=11, column=6, sticky='nsew')\n",
-        "    add1_val_entry = Entry(root, textvariable=add1_val_var, font=font)\n",
-        "    add1_val_entry.grid(row=11, column=7, sticky='nsew')\n",
-        "\n",
-        "    add2_col_var = StringVar()\n",
-        "    add2_val_var = StringVar()\n",
-        "    add2_label = Label(root, text=\"Attribute Variable (2): \", font=font)\n",
-        "    add2_label.grid(row=12, column=5, sticky='nsew')\n",
-        "    add2_col_entry = Entry(root, textvariable=add2_col_var, font=font)\n",
-        "    add2_col_entry.grid(row=12, column=6, sticky='nsew')\n",
-        "    add2_val_entry = Entry(root, textvariable=add2_val_var, font=font)\n",
-        "    add2_val_entry.grid(row=12, column=7, sticky='nsew')\n",
-        "\n",
-        "    canvas = None\n",
-        "\n",
-        "    run_analysis_button = tk.Button(root, text=\"3. Analyze\", command=run_analysis, font=font, bd=2, relief='solid')\n",
-        "    run_analysis_button.grid(row=13, column=6, sticky='nsew')\n",
-        "    ToolTip(run_analysis_button, \"Run the model\")\n",
-        "\n",
-        "\n",
-        "    save_button = tk.Button(root, text=\"4. Save\", command=save_shapefile, font=font, bd=2, relief='solid')\n",
-        "    save_button.grid(row=14, column=6, sticky='nsew')\n",
-        "    ToolTip(save_button, \"Save the derived results\")\n",
-        "\n",
-        "    root.mainloop()"
-      ],
-      "outputs": [],
-      "execution_count": null,
-      "metadata": {
-        "id": "f_iYwtJ2eZhi"
-      }
-    }
-  ],
-  "metadata": {
-    "colab": {
-      "provenance": []
-    },
-    "kernelspec": {
-      "display_name": "Python 3",
-      "name": "python3"
-    }
-  },
-  "nbformat": 4,
-  "nbformat_minor": 0
+"""
+LAMOS: Location Allocation Model Optimization System (visual analytics GUI).
+
+Run:  python lamos_app.py
+
+Workflow (see README.md):
+  0. Area                 - load the study-area polygon shapefile
+  1. Input                - load the demand point shapefile (D0)
+  2. Parameter Setting    - read the model / computation parameters
+  Temporal / Attribute    - define the scenario subset (Da), then 'Visualize'
+  ESDA                    - open the six exploratory analyses (Table 1 of the paper)
+  3. Analyze              - Monte Carlo multi-objective optimization on Da
+  4. Save                 - export the non-dominated facility locations
+"""
+from __future__ import annotations
+
+import traceback
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+import matplotlib
+matplotlib.use("TkAgg")
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+import geopandas as gpd  # noqa: E402
+
+import lamos_core as core  # noqa: E402
+import lamos_esda as esda  # noqa: E402
+
+FONT = ("Times New Roman", 14)
+TABLE_ROWS = 1000          # rows shown in the attribute table
+DEFAULTS = {               # parameter values used in the paper's case study (Figure 5)
+    "Weight column": "", "Number of facilities": "3", "Coverage distance": "90",
+    "Number of partitions": "30", "Threshold distance": "5", "Maximum iteration": "10",
+    "Number of iteration": "5", "Voronoi of iteration": "100", "Random seed": "42",
 }
+
+
+class ToolTip:
+    def __init__(self, widget, text):
+        self.widget, self.text, self.tip = widget, text, None
+        widget.bind("<Enter>", self.show)
+        widget.bind("<Leave>", self.hide)
+
+    def show(self, _=None):
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + self.widget.winfo_height()
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry(f"+{x}+{y}")
+        tk.Label(self.tip, text=self.text, background="#ffffe0", relief="solid", borderwidth=1,
+                 justify="left").pack()
+
+    def hide(self, _=None):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
+def figure_window(parent, title, fig, size="1300x850"):
+    """Pop-up window with a scrollable matplotlib figure and toolbar."""
+    win = tk.Toplevel(parent)
+    win.title(title)
+    win.geometry(size)
+    canvas = FigureCanvasTkAgg(fig, master=win)
+    NavigationToolbar2Tk(canvas, win).update()
+    canvas.draw()
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    return win, canvas
+
+
+class LamosApp:
+    def __init__(self, root):
+        self.root = root
+        root.title("LAMOS - Visual Analytics Tool")
+        self.bg = None           # study area
+        self.d0 = None           # all demands
+        self.da = None           # scenario subset
+        self.hull = None
+        self.params = None
+        self.result = None
+        self._build()
+
+    # ------------------------------------------------------------------ layout
+    def _build(self):
+        r = self.root
+        for i in range(20):
+            r.grid_rowconfigure(i, weight=2)
+        for i in range(9):
+            r.grid_columnconfigure(i, weight=2)
+
+        def button(text, cmd, row, col, tip, span=1, **kw):
+            b = tk.Button(r, text=text, command=self._safe(cmd), font=FONT, bd=2, relief="solid", **kw)
+            b.grid(row=row, column=col, columnspan=span, sticky="nsew")
+            ToolTip(b, tip)
+            return b
+
+        button("0. Area", self.select_area, 0, 0, "Input the research area (polygon shapefile)")
+        button("1. Input", self.select_demand, 0, 1, "The point shapefile you want to consider", span=2)
+        button("2. Parameter Setting", self.read_parameters, 0, 3,
+               "Weight column: the demand's weight\nNumber of facilities: the number of desired facilities\n"
+               "Coverage distance: the distance that a facility can cover\n"
+               "Number of partitions: how many non-dominated solutions will be considered\n"
+               "Threshold distance: the algorithm stops when solutions move less than this value\n"
+               "Maximum iteration: the algorithm stops after this many iterations\n"
+               "Number of iteration: random restarts of the optimization\n"
+               "Voronoi of iteration: number of Monte Carlo simulations\n"
+               "Random seed: makes results reproducible (leave empty for random)")
+
+        self.entries = {}
+        layout = [("Weight column", 1, 0), ("Number of facilities", 2, 0), ("Coverage distance", 3, 0),
+                  ("Number of partitions", 4, 0), ("Threshold distance", 1, 2), ("Maximum iteration", 2, 2),
+                  ("Number of iteration", 3, 2), ("Voronoi of iteration", 4, 2), ("Random seed", 5, 0)]
+        for name, row, col in layout:
+            tk.Label(r, text=f"{name}: ", font=FONT).grid(row=row, column=col, sticky="nsew")
+            e = tk.Entry(r, font=FONT)
+            e.insert(0, DEFAULTS[name])
+            e.grid(row=row, column=col + 1, sticky="nsew")
+            self.entries[name] = e
+        self.status = tk.Label(r, text="Load the study area (0) and the demand points (1).", font=("Arial", 10),
+                               anchor="w", fg="dimgray")
+        self.status.grid(row=5, column=2, columnspan=2, sticky="nsew")
+
+        button("ESDA", self.open_esda_menu, 0, 6, "Open the six exploratory spatial data analyses in sequence")
+        button("Visualize", self.visualize, 0, 7, "Update the demands following the defined conditions")
+
+        # temporal variables: (button row, from row, to row)
+        self.temporal = {}
+        for k, (brow, frow, trow) in {1: (1, 2, 3), 2: (4, 5, 6), 3: (7, 8, 9)}.items():
+            b = tk.Button(r, text=f"Temporal Variable ({k})", font=FONT, bd=2, relief="solid", width=20,
+                          command=self._safe(lambda k=k: self.activate_temporal(k)))
+            b.grid(row=brow, column=6, sticky="nsew")
+            ToolTip(b, "Type a column name on the right and click to activate it")
+            col_entry = tk.Entry(r, font=FONT, width=20)
+            col_entry.grid(row=brow, column=7, sticky="nsew")
+            scales = []
+            for label, row in [("From: ", frow), ("To: ", trow)]:
+                tk.Label(r, text=label, font=FONT, width=20).grid(row=row, column=5, sticky="nsew")
+                s = tk.Scale(r, from_=0, to=10, orient=tk.HORIZONTAL, font=FONT, bd=2, relief="solid", width=20)
+                s.grid(row=row, column=6, columnspan=3, sticky="nsew")
+                scales.append(s)
+            self.temporal[k] = {"entry": col_entry, "from": scales[0], "to": scales[1], "col": None}
+
+        tk.Label(r, text="Column", font=FONT).grid(row=10, column=6, sticky="nsew")
+        tk.Label(r, text="Value", font=FONT).grid(row=10, column=7, sticky="nsew")
+        self.attributes = []
+        for k, row in [(1, 11), (2, 12)]:
+            tk.Label(r, text=f"Attribute Variable ({k}): ", font=FONT).grid(row=row, column=5, sticky="nsew")
+            c, v = tk.Entry(r, font=FONT), tk.Entry(r, font=FONT)
+            c.grid(row=row, column=6, sticky="nsew")
+            v.grid(row=row, column=7, sticky="nsew")
+            self.attributes.append((c, v))
+
+        button("3. Analyze", self.analyze, 13, 6, "Run the Monte Carlo multi-objective optimization")
+        button("4. Save", self.save, 14, 6, "Save the non-dominated facility locations as a shapefile")
+
+        self.map_fig = Figure(figsize=(8, 3.6))
+        self.map_ax = self.map_fig.add_subplot(111)
+        self.map_canvas = FigureCanvasTkAgg(self.map_fig, master=r)
+        self.map_canvas.get_tk_widget().grid(row=6, column=0, columnspan=4, rowspan=4, sticky="nsew")
+
+        frame = tk.Frame(r, height=200)
+        frame.grid(row=11, column=0, columnspan=4, rowspan=4, sticky="nsew")
+        frame.pack_propagate(False)   # keep the wide table from pushing the right-hand panel off-screen
+        self.tree = ttk.Treeview(frame, show="headings", selectmode="browse")
+        hsb = ttk.Scrollbar(frame, orient="horizontal", command=self.tree.xview)
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(xscrollcommand=hsb.set, yscrollcommand=vsb.set)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+    # ----------------------------------------------------------------- helpers
+    def _safe(self, func):
+        """Run a callback with a busy cursor and show errors instead of failing silently."""
+        def wrapper(*args):
+            self.root.config(cursor="watch")
+            self.root.update_idletasks()
+            try:
+                func(*args)
+            except UserWarning as w:
+                messagebox.showwarning("LAMOS", str(w))
+            except Exception as e:  # noqa: BLE001
+                traceback.print_exc()
+                messagebox.showerror("LAMOS", f"{type(e).__name__}: {e}")
+            finally:
+                self.root.config(cursor="")
+        return wrapper
+
+    def set_status(self, text):
+        self.status.config(text=text)
+        self.root.update_idletasks()
+
+    def require(self, demand=True, area=False, params=False):
+        if demand and self.d0 is None:
+            raise UserWarning("Load the demand point shapefile first (1. Input).")
+        if area and self.bg is None:
+            raise UserWarning("Load the study-area shapefile first (0. Area).")
+        if params and self.params is None:
+            self.read_parameters()
+
+    def fill_table(self, gdf):
+        self.tree.delete(*self.tree.get_children())
+        cols = [c for c in gdf.columns if c != gdf.geometry.name] + [gdf.geometry.name]
+        self.tree["columns"] = cols
+        for c in cols:
+            self.tree.heading(c, text=c)
+            self.tree.column(c, width=90, stretch=False)
+        for _, row in gdf[cols].head(TABLE_ROWS).iterrows():
+            self.tree.insert("", "end", values=[str(v) for v in row])
+
+    def draw_map(self, points=None, color="black", label=None):
+        ax = self.map_ax
+        ax.clear()
+        if self.bg is not None:
+            self.bg.plot(ax=ax, color="none", edgecolor="black")
+        if points is not None and len(points):
+            points.plot(ax=ax, color=color, alpha=0.5, markersize=12)
+            ax.text(0.97, 0.95, label or f"Number of points: {len(points):,}", ha="right", va="top",
+                    transform=ax.transAxes, color="blue" if color != "black" else "black", fontsize=10,
+                    bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"))
+        ax.set_aspect("equal")
+        self.map_fig.tight_layout()
+        self.map_canvas.draw()
+
+    # ----------------------------------------------------------------- 0, 1, 2
+    def select_area(self):
+        path = filedialog.askopenfilename(filetypes=[("Shapefile", "*.shp"), ("All files", "*.*")])
+        if path:
+            self.bg = gpd.read_file(path)
+            self.draw_map(self.d0)
+            self.set_status(f"Study area loaded: {path.split('/')[-1]}")
+
+    def select_demand(self):
+        path = filedialog.askopenfilename(filetypes=[("Shapefile", "*.shp"), ("All files", "*.*")])
+        if path:
+            d0 = gpd.read_file(path)
+            if not (d0.geom_type == "Point").all():
+                raise UserWarning("The demand shapefile must contain point geometries.")
+            self.d0 = d0.reset_index(drop=True)
+            self.da = None
+            self.hull = core.convex_hull_area(self.d0)
+            self.draw_map(self.d0)
+            self.fill_table(self.d0)
+            self.set_status(f"{len(self.d0):,} demands loaded. Set the parameters (2).")
+
+    def read_parameters(self):
+        self.require()
+        e = {k: v.get().strip() for k, v in self.entries.items()}
+        weight = e["Weight column"]
+        if weight not in self.d0.columns:
+            raise UserWarning(f"Weight column '{weight}' is not in the demand data.")
+        if not pd.api.types.is_numeric_dtype(self.d0[weight]):
+            raise UserWarning(f"Weight column '{weight}' must be numeric.")
+        try:
+            self.params = core.Params(
+                weight_col=weight, num_fac=int(e["Number of facilities"]),
+                coverage_dist=float(e["Coverage distance"]), num_partitions=int(e["Number of partitions"]),
+                threshold_dist=float(e["Threshold distance"]), max_iter=int(e["Maximum iteration"]),
+                iterations=int(e["Number of iteration"]), num_vor=int(e["Voronoi of iteration"]),
+                seed=int(e["Random seed"]) if e["Random seed"] else None)
+        except ValueError as err:
+            raise UserWarning(f"Check the parameter values: {err}") from err
+        self.set_status("Parameters set. Define the scenario and click Visualize.")
+
+    # --------------------------------------------------------------- filtering
+    def activate_temporal(self, k):
+        self.require()
+        t = self.temporal[k]
+        col = t["entry"].get().strip()
+        if not col:
+            t["col"] = None
+            return
+        if col not in self.d0.columns or not pd.api.types.is_numeric_dtype(self.d0[col]):
+            raise UserWarning(f"Temporal variable '{col}' must be a numeric column of the demand data.")
+        v = self.d0[col].dropna()
+        lo, hi = float(v.min()), float(v.max())
+        integer = np.allclose(v, np.round(v))
+        res = 1 if integer else (hi - lo) / 100 or 1
+        for s, val in [(t["from"], lo), (t["to"], hi)]:
+            s.config(from_=lo, to=hi, resolution=res)
+            s.set(val)
+        t["col"] = col
+
+    def scenario(self):
+        """Apply the temporal ranges and attribute values to D0."""
+        self.require()
+        g = self.d0
+        for t in self.temporal.values():
+            if t["col"]:
+                g = g[(g[t["col"]] >= t["from"].get()) & (g[t["col"]] <= t["to"].get())]
+        for c_entry, v_entry in self.attributes:
+            col, val = c_entry.get().strip(), v_entry.get().strip()
+            if not col or val == "":
+                continue
+            if col not in g.columns:
+                raise UserWarning(f"Attribute variable '{col}' is not in the demand data.")
+            if pd.api.types.is_numeric_dtype(g[col]):
+                g = g[g[col] == float(val)]
+            else:
+                g = g[g[col].astype(str) == val]
+        if len(g) == 0:
+            raise UserWarning("No demands satisfy the selected conditions.")
+        return g
+
+    def visualize(self):
+        self.da = self.scenario()
+        self.draw_map(self.da, color="cornflowerblue")
+        self.set_status(f"Scenario subset Da: {len(self.da):,} of {len(self.d0):,} demands.")
+
+    def _ready(self, area=True):
+        """Re-read the parameters and re-apply the scenario so every analysis uses
+        the values currently shown in the main window."""
+        self.require(area=area)
+        self.read_parameters()
+        self.visualize()
+        return self.d0, self.da, esda.study_extent(self.d0, self.bg)
+
+    # -------------------------------------------------------------------- ESDA
+    def open_esda_menu(self):
+        self._ready()
+        win = tk.Toplevel(self.root)
+        win.title("ESDA")
+        items = [("1. Weighted quadrat analysis", self.esda_quadrat),
+                 ("2. Demand surface difference map", self.esda_surface),
+                 ("3. LISA (local Moran's I)", self.esda_lisa),
+                 ("4. Kernel density estimation", self.esda_kde),
+                 ("5. K-S tests and Ripley's K", self.esda_ks),
+                 ("6. K-means clustering", self.esda_kmeans)]
+        tk.Label(win, text="Re-open a single view:", font=FONT, anchor="w").pack(fill=tk.X)
+        for text, cmd in items:
+            tk.Button(win, text=text, font=FONT, width=34, anchor="w", command=self._safe(cmd)).pack(fill=tk.X)
+        # one press of 'ESDA' presents all six views as sequential pop-up windows (Section 6-3 of the paper)
+        for _, cmd in items:
+            self._safe(cmd)()
+            self.root.update()
+
+    def esda_quadrat(self):
+        d0, da, ext = self._ready()
+        w = self.params.weight_col
+        self.set_status("Weighted quadrat analysis ...")
+        summary = esda.quadrat_summary(d0, da, w, ext, self.bg)
+        fig = Figure(figsize=(13, 9), layout="constrained")
+        win, canvas = figure_window(self.root, "Quadrat Analysis", fig)
+
+        def redraw(n):
+            fig.clear()
+            gs = fig.add_gridspec(2, 2, height_ratios=[1, 1.3])
+            esda.draw_quadrat_summary(fig.add_subplot(gs[0, :]), summary, highlight=[int(n)])
+            esda.draw_quadrat_maps(fig, d0, da, w, ext, int(n), self.bg,
+                                   axes=[fig.add_subplot(gs[1, 0]), fig.add_subplot(gs[1, 1])])
+            canvas.draw()
+
+        bar = tk.Frame(win)
+        bar.pack(side=tk.TOP, fill=tk.X, before=canvas.get_tk_widget())
+        tk.Label(bar, text="Grid Resolution", font=FONT).pack(side=tk.LEFT)
+        s = tk.Scale(bar, from_=1, to=30, orient=tk.HORIZONTAL, length=400, font=FONT)
+        s.pack(side=tk.LEFT)
+        s.set(7)
+        s.config(command=redraw)
+        redraw(7)
+        self.set_status("Weighted quadrat analysis done.")
+
+    def esda_surface(self):
+        d0, da, ext = self._ready()
+        self.set_status("Kriging the demand surfaces ...")
+        gx, gy, diff = esda.surface_difference(d0, da, self.params.weight_col, ext, self.bg, seed=self.params.seed)
+        fig = Figure(figsize=(15, 6.5), layout="constrained")
+        esda.draw_surface_difference(fig, gx, gy, diff, self.bg)
+        figure_window(self.root, "Approximated demand surface difference map (drag to rotate)", fig)
+        self.set_status("Demand surface difference map done.")
+
+    def esda_lisa(self):
+        d0, da, ext = self._ready()
+        self.set_status("LISA (999 permutations) ...")
+        r0 = esda.lisa(d0, self.params.weight_col, seed=self.params.seed)
+        ra = esda.lisa(da, self.params.weight_col, seed=self.params.seed)
+        fig = Figure(figsize=(16, 7), layout="constrained")
+        esda.draw_lisa(fig, d0, r0, da, ra, ext, self.bg, self.hull)
+        figure_window(self.root, "LISA", fig)
+        self.set_status("LISA done.")
+
+    def esda_kde(self):
+        d0, da, ext = self._ready()
+        cols = [t["col"] for t in self.temporal.values() if t["col"]]
+        if not cols:
+            raise UserWarning("Activate at least one temporal variable for the KDE plots.")
+        win = tk.Toplevel(self.root)
+        win.title("KDE Analyzer")
+        win.geometry("1300x850")
+        outer = tk.Canvas(win)
+        vsb = ttk.Scrollbar(win, orient="vertical", command=outer.yview)
+        hsb = ttk.Scrollbar(win, orient="horizontal", command=outer.xview)
+        outer.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        outer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = tk.Frame(outer)
+        outer.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: outer.configure(scrollregion=outer.bbox("all")))
+        first = cols[0]
+        values = sorted(da[first].dropna().unique()) if len(cols) > 1 else [None]
+        for v in values:
+            n2 = da[cols[1]].nunique() if len(cols) > 1 else 1
+            n3 = da[cols[2]].nunique() if len(cols) > 2 else 1
+            fig = Figure(figsize=esda.kde_figsize(n2, n3, ext), layout="constrained")
+            if len(cols) > 1:
+                esda.draw_kde_grid(fig, da, cols, v, ext, self.bg)
+            else:
+                esda.draw_kde_grid(fig, da, [None, first], None, ext, self.bg)
+            c = FigureCanvasTkAgg(fig, master=inner)
+            c.draw()
+            c.get_tk_widget().pack()
+        self.set_status("KDE plots done (common extent and aspect ratio).")
+
+    def esda_ks(self):
+        d0, da, ext = self._ready()
+        self.set_status("K-S tests, Ripley's K and Voronoi overlap ...")
+        fig = Figure(figsize=(16, 24), layout="constrained")
+        esda.draw_ks_ripley(fig, d0, da, self.params.weight_col, self.bg, self.hull,
+                            num_points=self.params.num_fac * self.params.demands_per_facility,
+                            seed=self.params.seed)
+        win = tk.Toplevel(self.root)
+        win.title("K-S Test Report")
+        win.geometry("1300x850")
+        outer = tk.Canvas(win)
+        vsb = ttk.Scrollbar(win, orient="vertical", command=outer.yview)
+        outer.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        outer.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        inner = tk.Frame(outer)
+        outer.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: outer.configure(scrollregion=outer.bbox("all")))
+        c = FigureCanvasTkAgg(fig, master=inner)
+        c.draw()
+        c.get_tk_widget().pack()
+        self.set_status("K-S test report done.")
+
+    def esda_kmeans(self):
+        d0, da, ext = self._ready()
+        fig = Figure(figsize=(15, 6.5), layout="constrained")
+        win, canvas = figure_window(self.root, "K-means Clustering Visualization", fig, size="1400x750")
+        bar = tk.Frame(win)
+        bar.pack(side=tk.TOP, fill=tk.X, before=canvas.get_tk_widget())
+        label = tk.Label(bar, font=FONT)
+
+        def redraw(k):
+            k = int(k)
+            label.config(text=f"Number of Facilities: {k}")
+            fig.clear()
+            esda.draw_kmeans(fig, d0, da, self.params.weight_col, k, ext, self.bg, seed=self.params.seed)
+            canvas.draw()
+
+        label.pack(side=tk.LEFT)
+        s = tk.Scale(bar, from_=2, to=10, orient=tk.HORIZONTAL, length=300, font=FONT)
+        s.pack(side=tk.LEFT)
+        s.set(min(max(self.params.num_fac, 2), 10))
+        s.config(command=redraw)
+        redraw(s.get())
+
+    # ------------------------------------------------------------ 3. and 4.
+    def analyze(self):
+        d0, da, _ = self._ready(area=False)
+        p = self.params
+        if len(da) < p.num_fac:
+            raise UserWarning("The scenario subset has fewer demands than facilities.")
+        self.result = core.run_monte_carlo(
+            da, self.hull, p, progress=lambda i, n: self.set_status(f"Monte Carlo simulation {i}/{n} ..."))
+        if self.result.global_solutions.empty:
+            raise UserWarning("The analysis produced no solutions; check the parameters.")
+        fig = Figure(figsize=(14, 13), layout="constrained")
+        esda.draw_results(fig, self.result, da, self.bg, p)
+        figure_window(self.root, "Results", fig, size="1200x1000")
+        g = self.result.global_values
+        self.set_status(f"{len(g)} non-dominated solutions: coverage {g.covered_per.min():.1f}-"
+                        f"{g.covered_per.max():.1f}%, mean distance {g.mean_dist.min():.1f}-{g.mean_dist.max():.1f}.")
+
+    def save(self):
+        if self.result is None or self.result.global_solutions.empty:
+            raise UserWarning("Run the analysis (3. Analyze) first.")
+        path = filedialog.asksaveasfilename(defaultextension=".shp", filetypes=[("Shapefile", "*.shp")])
+        if path:
+            core.solutions_for_export(self.result.global_solutions).to_file(path)
+            self.set_status(f"Saved {path.split('/')[-1]}")
+
+
+def main():
+    root = tk.Tk()
+    LamosApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
