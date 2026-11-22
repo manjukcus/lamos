@@ -329,14 +329,14 @@ def simulate_demands(gdf_filtered: gpd.GeoDataFrame, hull: gpd.GeoDataFrame, p: 
 class MonteCarloResult:
     solutions: gpd.GeoDataFrame        # all local non-dominated solutions (uniq_ind)
     simulated_values: pd.DataFrame     # objective values on each simulated demand set
-    scenario_values: pd.DataFrame      # objective values on the scenario demands (Da)
-    global_values: pd.DataFrame        # global non-dominated values on Da
+    scenario_values: pd.DataFrame      # objective values on the scenario demands (D'_I)
+    global_values: pd.DataFrame        # global non-dominated values on D'_I
     global_solutions: gpd.GeoDataFrame # global non-dominated facility locations
 
 
 def run_monte_carlo(gdf_filtered: gpd.GeoDataFrame, hull: gpd.GeoDataFrame, p: Params,
                     progress=None) -> MonteCarloResult:
-    """'3. Analyze': Monte Carlo simulation + global non-dominated solutions on Da."""
+    """'3. Analyze': Monte Carlo simulation + global non-dominated solutions on D'_I."""
     if p.seed is not None:
         np.random.seed(p.seed)
     sols, sim_vals = [], []

@@ -5,11 +5,11 @@ Run:  python lamos_app.py
 
 Workflow (see README.md):
   0. Area                 - load the study-area polygon shapefile
-  1. Input                - load the demand point shapefile (D0)
+  1. Input                - load the demand point shapefile (D_I)
   2. Parameter Setting    - read the model / computation parameters
-  Temporal / Attribute    - define the scenario subset (Da), then 'Visualize'
+  Temporal / Attribute    - define the scenario subset (D'_I), then 'Visualize'
   ESDA                    - open the six exploratory analyses (Table 1 of the paper)
-  3. Analyze              - Monte Carlo multi-objective optimization on Da
+  3. Analyze              - Monte Carlo multi-objective optimization on D'_I
   4. Save                 - export the non-dominated facility locations
 """
 from __future__ import annotations
@@ -285,7 +285,7 @@ class LamosApp:
         t["col"] = col
 
     def scenario(self):
-        """Apply the temporal ranges and attribute values to D0."""
+        """Apply the temporal ranges and attribute values to D_I."""
         self.require()
         g = self.d0
         for t in self.temporal.values():
@@ -308,7 +308,7 @@ class LamosApp:
     def visualize(self):
         self.da = self.scenario()
         self.draw_map(self.da, color="cornflowerblue")
-        self.set_status(f"Scenario subset Da: {len(self.da):,} of {len(self.d0):,} demands.")
+        self.set_status(f"Scenario subset D'_I: {len(self.da):,} of {len(self.d0):,} demands.")
 
     def _ready(self, area=True):
         """Re-read the parameters and re-apply the scenario so every analysis uses

@@ -2,7 +2,7 @@
 
 LAMOS is an open-source desktop visual analytics tool for multi-objective
 location optimization. It helps a decision-maker define a scenario-specific
-demand set (Da) from a large point dataset (D0), compare the two with six
+demand set (D'_I) from a large point dataset (D_I), compare the two with six
 exploratory spatial data analysis (ESDA) methods, and derive non-dominated
 facility locations that trade off coverage and access with a Monte Carlo
 simulation approach.
@@ -21,7 +21,7 @@ fields) reproduce the paper's case study.
 | Window | Method | Paper |
 |---|---|---|
 | Main window | Load study area and demand points, set parameters, define the scenario with up to three temporal ranges and two attribute values | Figures 3, 5 |
-| ESDA 1 | Weighted quadrat analysis: box plots of the per-quadrat difference \|Da - D0\| / D0 for resolutions 1-30, and D0 / Da quadrat maps with a resolution slider | Figure 6 |
+| ESDA 1 | Weighted quadrat analysis: box plots of the per-quadrat difference \|D'_I - D_I\| / D_I for resolutions 1-30, and D_I / D'_I quadrat maps with a resolution slider | Figure 6 |
 | ESDA 2 | Approximated demand surface difference map: relative difference of the ordinary-kriging surfaces of the demand weight, top view and rotatable 3D view | Figure 7 |
 | ESDA 3 | LISA: global and local Moran's I of the demand weight with Voronoi-contiguity weights (hotspots / coldspots) | Figure 8 |
 | ESDA 4 | Kernel density estimation by temporal unit, all panels on a common extent and aspect ratio | Figure 9 |
@@ -73,7 +73,7 @@ python lamos_app.py
 4. Temporal variables: type `game_year`, `month` and `inning` next to
    **Temporal Variable (1)-(3)**, click each button, and set the ranges
    2016-2019, 4-8 and 1-6. Attribute variables: `stand` = `L`, `p_thrws` = `R`.
-5. **Visualize**: Da contains 1,228 batted balls.
+5. **Visualize**: D'_I contains 1,228 batted balls.
 6. **ESDA** opens the six analyses as sequential pop-up windows; a small menu re-opens any single view.
 7. **3. Analyze** runs the Monte Carlo optimization (about 4 minutes with
    100 Voronoi iterations on a recent desktop CPU); **4. Save** exports the
@@ -133,3 +133,5 @@ checks that both return identical solutions for the same random seed.
   cached: the Monte Carlo analysis is about 100 times faster with identical
   results. A random seed (default 42) makes all analyses reproducible.
 - Added `run.sh` for macOS/Linux, a figure reproduction script and tests.
+- Figures, window titles and messages use the notation of the paper: D_I for the full
+  demand set and D'_I for the scenario subset.

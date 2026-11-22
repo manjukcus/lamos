@@ -6,7 +6,7 @@ computation function (no GUI dependency) and a ``draw_*`` function that
 renders onto a ``matplotlib.figure.Figure``. The GUI embeds these figures in
 pop-up windows; ``scripts/reproduce_esda_figures.py`` saves them to files.
 
-D0 is the full demand set and Da the scenario subset selected with the
+D_I is the full demand set and D'_I the scenario subset selected with the
 temporal/attribute filters.
 
 1. Weighted quadrat analysis ........ quadrat_shares, quadrat_curve, draw_quadrat
@@ -31,8 +31,8 @@ import seaborn as sns
 from scipy import stats
 from scipy.stats import ks_2samp
 
-D0_LABEL = r"$D_0$"
-DA_LABEL = r"$D_a$"
+D0_LABEL = r"$D_I$"
+DA_LABEL = r"$D'_I$"
 
 
 # --------------------------------------------------------------------------
@@ -98,7 +98,7 @@ def quadrat_shares(gdf, weight_col, ex, ey, keep):
 
 
 def quadrat_differences(d0, da, weight_col, extent, n, bg_gdf=None):
-    """Relative absolute difference |Da - D0| / D0 (%) of every quadrat with D0 > 0."""
+    """Relative absolute difference |D'_I - D_I| / D_I (%) of every quadrat with D_I > 0."""
     ex, ey, keep = quadrat_grid(extent, n, bg_gdf)
     s0 = quadrat_shares(d0, weight_col, ex, ey, keep)
     sa = quadrat_shares(da, weight_col, ex, ey, keep)
@@ -128,7 +128,7 @@ def draw_quadrat_summary(ax, summary, highlight=()):
 
 
 def draw_quadrat_maps(fig: Figure, d0, da, weight_col, extent, n, bg_gdf=None, axes=None):
-    """D0 | Da quadrat maps of the share of contained demand, on a shared colour scale."""
+    """D_I | D'_I quadrat maps of the share of contained demand, on a shared colour scale."""
     ex, ey, keep = quadrat_grid(extent, n, bg_gdf)
     s0 = quadrat_shares(d0, weight_col, ex, ey, keep)
     sa = quadrat_shares(da, weight_col, ex, ey, keep)
@@ -147,7 +147,7 @@ def draw_quadrat_maps(fig: Figure, d0, da, weight_col, extent, n, bg_gdf=None, a
 
 
 def draw_quadrat(fig: Figure, d0, da, weight_col, extent, resolutions, bg_gdf=None, summary=None):
-    """Figure 6 layout: (a) box plots for resolutions 1-30, then one D0 | Da map row
+    """Figure 6 layout: (a) box plots for resolutions 1-30, then one D_I | D'_I map row
     per resolution in ``resolutions``."""
     resolutions = list(resolutions)
     if summary is None:
@@ -183,8 +183,8 @@ def kriged_surface(gdf, weight_col, gx, gy, max_points=800, variogram="gaussian"
 
 
 def surface_difference(d0, da, weight_col, extent, bg_gdf=None, grid_n=60, max_points=800, seed=None):
-    """Relative difference (Da - D0) / D0 of the kriged demand-weight surfaces,
-    clipped to [-1, 1] (positive = higher demand weight in Da)."""
+    """Relative difference (D'_I - D_I) / D_I of the kriged demand-weight surfaces,
+    clipped to [-1, 1] (positive = higher demand weight in D'_I)."""
     rng = np.random.RandomState(seed) if seed is not None else None
     gx = np.linspace(extent[0], extent[2], grid_n)
     gy = np.linspace(extent[1], extent[3], grid_n)
@@ -406,7 +406,7 @@ def _ci(a, confidence=0.95):
 
 def draw_ks_ripley(fig: Figure, d0, da, weight_col, bg_gdf, hull, num_points=60,
                    iterations=100, voronoi_iterations=30, seed=None, voronoi=True):
-    """K-S tests (x, y, weight) between Da and the unselected demands D0 \\ Da
+    """K-S tests (x, y, weight) between D'_I and the unselected demands D_I \\ D'_I
     (independent samples), Monte Carlo Ripley's K, and Voronoi overlap."""
     import shapely
     from astropy.stats import RipleysKEstimator
@@ -493,9 +493,9 @@ def draw_ks_ripley(fig: Figure, d0, da, weight_col, bg_gdf, hull, num_points=60,
 
     if not voronoi:
         return
-    # Voronoi overlap: how much of each region of a Da sample overlaps the region
+    # Voronoi overlap: how much of each region of a D'_I sample overlaps the region
     # of the nearest generator of an unselected sample (and, as a reference,
-    # of two random samples drawn from D0)
+    # of two random samples drawn from D_I)
     ax5 = fig.add_subplot(gs[4:6, :])
     hull_geom = hull.geometry.iloc[0]
     hull_area = hull_geom.area
@@ -565,7 +565,7 @@ def kmeans_fit(gdf, weight_col, k, seed=None, n_init=10):
 
 
 def draw_kmeans(fig: Figure, d0, da, weight_col, k, extent, bg_gdf=None, seed=None):
-    """K-means computed independently for D0 and Da with the same k."""
+    """K-means computed independently for D_I and D'_I with the same k."""
     cmap = sns.color_palette("tab10", max(k, 3))
     for i, (g, name) in enumerate([(d0, D0_LABEL), (da, DA_LABEL)], start=1):
         ax = fig.add_subplot(1, 2, i)
